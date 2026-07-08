@@ -597,10 +597,14 @@ const skillTool: Tool = {
     if (action === 'read') {
       const skill = skillStore.read(name)
       if (!skill) return { ok: false, output: `No skill named "${name}". Check the skills index.` }
-      return {
-        ok: true,
-        output: `# ${skill.meta.name}\n${skill.meta.description}\n(updated ${skill.meta.updated})\n\n${skill.content}`
+      let output = `# ${skill.meta.name}\n${skill.meta.description}\n(updated ${skill.meta.updated})\n\n${skill.content}`
+      if (skill.files.length) {
+        output +=
+          `\n\n## Bundled files (in ${skill.dir})\n` +
+          skill.files.map((f) => `- ${f}`).join('\n') +
+          `\nWhen the playbook references one of these (a script to run, a reference to consult), use its absolute path under that directory — e.g. read_file or bash with "${skill.dir}/<file>".`
       }
+      return { ok: true, output }
     }
     if (action === 'create' || action === 'update' || action === 'delete') {
       const result = skillStore.save({

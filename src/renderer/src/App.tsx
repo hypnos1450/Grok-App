@@ -4,6 +4,7 @@ import Login from './components/Login'
 import Sidebar from './components/Sidebar'
 import Chat from './components/Chat'
 import SettingsModal from './components/SettingsModal'
+import RightDock from './components/RightDock'
 
 export default function App(): JSX.Element {
   const [auth, setAuth] = useState<AuthState | null>(null)
@@ -140,6 +141,7 @@ export default function App(): JSX.Element {
           }}
         />
       </div>
+      <RightDock session={active} />
       {showSettings && (
         <SettingsModal
           settings={settings}

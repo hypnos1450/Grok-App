@@ -4,6 +4,7 @@ import { initLogging, logger } from './logger'
 import { buildMenu } from './menu'
 import { initUpdater } from './updater'
 import { registerIpc } from './ipc'
+import { termManager } from './panels'
 import { sessionStore } from './sessions'
 
 let mainWindow: BrowserWindow | null = null
@@ -78,6 +79,7 @@ if (!app.requestSingleInstanceLock()) {
 
     sessionStore.init()
     registerIpc(() => mainWindow)
+    termManager.init(() => mainWindow)
     buildMenu(() => mainWindow)
     createWindow()
     initUpdater(() => mainWindow)
@@ -93,3 +95,6 @@ if (!app.requestSingleInstanceLock()) {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
+
+// Don't leave terminal-panel processes running after the app exits.
+app.on('before-quit', () => termManager.killAll())

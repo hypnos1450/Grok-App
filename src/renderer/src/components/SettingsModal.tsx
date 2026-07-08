@@ -8,8 +8,12 @@ import {
   PendingSkillWrite,
   PermissionMode,
   Settings,
+  SkillImportReport,
   SkillMeta
 } from '@shared/types'
+
+const TABS = ['General', 'Agent', 'Memory', 'Skills', 'MCP', 'About'] as const
+type Tab = (typeof TABS)[number]
 
 function MemorySection({ cwd }: { cwd?: string }): JSX.Element {
   const [entries, setEntries] = useState<{ memory: string[]; user: string[]; project: string[] }>({
@@ -99,10 +103,73 @@ function MemorySection({ cwd }: { cwd?: string }): JSX.Element {
   )
 }
 
+function SkillInstall({ onInstalled }: { onInstalled: () => void }): JSX.Element {
+  const [url, setUrl] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [report, setReport] = useState<SkillImportReport | null>(null)
+
+  const finish = (r: SkillImportReport | null): void => {
+    setBusy(false)
+    if (!r) return // folder picker cancelled
+    setReport(r)
+    if (r.installed.length) onInstalled()
+  }
+
+  const fromGithub = (): void => {
+    if (!url.trim() || busy) return
+    setBusy(true)
+    setReport(null)
+    void window.harness.skills.installGithub(url.trim()).then(finish)
+  }
+
+  const fromFolder = (): void => {
+    if (busy) return
+    setBusy(true)
+    setReport(null)
+    void window.harness.skills.importFolder().then(finish)
+  }
+
+  return (
+    <div className="skill-install">
+      <div className="mcp-add">
+        <input
+          className="login-input"
+          placeholder="GitHub URL or owner/repo (repo, skill folder, or SKILL.md link)"
+          value={url}
+          onChange={(e) => setUrl(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && fromGithub()}
+        />
+        <span style={{ display: 'flex', gap: 6 }}>
+          <button className="btn" disabled={busy || !url.trim()} onClick={fromGithub}>
+            {busy ? 'Installing…' : 'Install from GitHub'}
+          </button>
+          <button className="btn" disabled={busy} onClick={fromFolder}>
+            Import folder…
+          </button>
+        </span>
+      </div>
+      {report && (
+        <div className="skill-install-report">
+          {report.installed.length > 0 && (
+            <div className="ok">Installed: {report.installed.join(', ')}</div>
+          )}
+          {report.errors.map((e) => (
+            <div key={e} className="err">
+              {e}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function SkillsSection(): JSX.Element {
   const [skills, setSkills] = useState<SkillMeta[]>([])
   const [pending, setPending] = useState<PendingSkillWrite[]>([])
-  const [openSkill, setOpenSkill] = useState<{ name: string; content: string } | null>(null)
+  const [openSkill, setOpenSkill] = useState<{ name: string; content: string; files: string[] } | null>(
+    null
+  )
 
   const refresh = useCallback(() => {
     void window.harness.skills.list().then(setSkills)
@@ -120,6 +187,7 @@ function SkillsSection(): JSX.Element {
 
   return (
     <div className="memory-section">
+      <SkillInstall onInstalled={refresh} />
       {pending.length > 0 && (
         <>
           <div className="memory-header">
@@ -156,16 +224,29 @@ function SkillsSection(): JSX.Element {
       )}
       {skills.length === 0 && pending.length === 0 && (
         <div className="memory-empty">
-          No skills yet — the agent saves playbooks here as it works out reusable procedures.
+          No skills yet — the agent saves playbooks here as it works out reusable procedures, or
+          install some from a GitHub repo above.
         </div>
       )}
       {skills.map((s) => (
         <div key={s.name} className="memory-entry">
           <span className="memory-entry-text">
             <b>{s.name}</b> — {s.description}{' '}
-            <span style={{ opacity: 0.6 }}>(updated {s.updated})</span>
+            <span style={{ opacity: 0.6 }}>
+              (updated {s.updated}
+              {s.fileCount ? ` · ${s.fileCount} bundled file${s.fileCount === 1 ? '' : 's'}` : ''})
+            </span>
             {openSkill?.name === s.name && (
-              <pre className="skill-body">{openSkill.content}</pre>
+              <>
+                {openSkill.files.length > 0 && (
+                  <div className="skill-files">
+                    {openSkill.files.map((f) => (
+                      <code key={f}>{f}</code>
+                    ))}
+                  </div>
+                )}
+                <pre className="skill-body">{openSkill.content}</pre>
+              </>
             )}
           </span>
           <span>
@@ -177,7 +258,7 @@ function SkillsSection(): JSX.Element {
                   ? setOpenSkill(null)
                   : void window.harness.skills
                       .get(s.name)
-                      .then((r) => r && setOpenSkill({ name: s.name, content: r.content }))
+                      .then((r) => r && setOpenSkill({ name: s.name, content: r.content, files: r.files }))
               }
             >
               {openSkill?.name === s.name ? 'hide' : 'view'}
@@ -304,6 +385,7 @@ export default function SettingsModal(props: {
   onChange: (s: Settings) => void
   onLogout: () => void
 }): JSX.Element {
+  const [tab, setTab] = useState<Tab>('General')
   const [updateMsg, setUpdateMsg] = useState<string | null>(null)
   const update = async (patch: Partial<Settings>): Promise<void> => {
     props.onChange(await window.harness.settings.set(patch))
@@ -316,197 +398,240 @@ export default function SettingsModal(props: {
 
   return (
     <div className="modal-backdrop" onClick={props.onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
         <h2>Settings</h2>
 
-        <div className="setting-row">
-          <div>
-            <div className="setting-label">Default model</div>
-            <div className="setting-help">Used for new sessions</div>
-          </div>
-          <select
-            value={props.settings.defaultModel}
-            onChange={(e) => void update({ defaultModel: e.target.value as ModelId })}
-          >
-            {MODELS.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="setting-row">
-          <div>
-            <div className="setting-label">Permission mode</div>
-            <div className="setting-help">
-              ask: approve edits & commands · auto-edit: file edits run freely · full-auto: everything runs
-            </div>
-          </div>
-          <select
-            value={props.settings.permissionMode}
-            onChange={(e) => void update({ permissionMode: e.target.value as PermissionMode })}
-          >
-            <option value="ask">ask</option>
-            <option value="auto-edit">auto-edit</option>
-            <option value="full-auto">full-auto</option>
-          </select>
-        </div>
-
-        <div className="setting-row">
-          <div>
-            <div className="setting-label">Web search</div>
-            <div className="setting-help">
-              Let Grok use xAI&apos;s built-in web and X search (runs on xAI servers)
-            </div>
-          </div>
-          <select
-            value={props.settings.enableWebSearch ? 'on' : 'off'}
-            onChange={(e) => void update({ enableWebSearch: e.target.value === 'on' })}
-          >
-            <option value="on">on</option>
-            <option value="off">off</option>
-          </select>
-        </div>
-
-        <div className="setting-row">
-          <div>
-            <div className="setting-label">Parallel subagents</div>
-            <div className="setting-help">
-              Let Grok spawn read-only investigation subagents that run in parallel
-            </div>
-          </div>
-          <select
-            value={props.settings.enableSubagents ? 'on' : 'off'}
-            onChange={(e) => void update({ enableSubagents: e.target.value === 'on' })}
-          >
-            <option value="on">on</option>
-            <option value="off">off</option>
-          </select>
-        </div>
-
-        <div className="setting-row">
-          <div>
-            <div className="setting-label">Memory</div>
-            <div className="setting-help">
-              Grok keeps bounded notes about you and your environment across sessions
-            </div>
-          </div>
-          <select
-            value={props.settings.memoryEnabled ? 'on' : 'off'}
-            onChange={(e) => void update({ memoryEnabled: e.target.value === 'on' })}
-          >
-            <option value="on">on</option>
-            <option value="off">off</option>
-          </select>
-        </div>
-
-        <div className="setting-row">
-          <div>
-            <div className="setting-label">Memory write approval</div>
-            <div className="setting-help">
-              Require your approval before memories are saved (foreground writes prompt inline,
-              background review writes are staged below)
-            </div>
-          </div>
-          <select
-            value={props.settings.memoryWriteApproval ? 'on' : 'off'}
-            onChange={(e) => void update({ memoryWriteApproval: e.target.value === 'on' })}
-          >
-            <option value="off">off</option>
-            <option value="on">on</option>
-          </select>
-        </div>
-
-        <div className="setting-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-          <div style={{ marginBottom: 6 }}>
-            <div className="setting-label">Memory contents</div>
-          </div>
-          <MemorySection cwd={props.activeCwd} />
-        </div>
-
-        <div className="setting-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-          <div style={{ marginBottom: 6 }}>
-            <div className="setting-label">Skills</div>
-            <div className="setting-help">
-              Playbooks the agent has written for itself — reusable multi-step procedures
-            </div>
-          </div>
-          <SkillsSection />
-        </div>
-
-        <div className="setting-row">
-          <div>
-            <div className="setting-label">Theme</div>
-          </div>
-          <select
-            value={props.settings.theme}
-            onChange={(e) => void update({ theme: e.target.value as Settings['theme'] })}
-          >
-            <option value="dark">dark</option>
-            <option value="light">light</option>
-          </select>
-        </div>
-
-        <div className="setting-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-          <div style={{ marginBottom: 6 }}>
-            <div className="setting-label">Custom instructions</div>
-            <div className="setting-help">Appended to the agent&apos;s system prompt in every session</div>
-          </div>
-          <textarea
-            defaultValue={props.settings.customInstructions}
-            onBlur={(e) => void update({ customInstructions: e.target.value })}
-            placeholder="e.g. Always use pnpm. Prefer TypeScript strict mode."
-          />
-        </div>
-
-        <div className="setting-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-          <div style={{ marginBottom: 6 }}>
-            <div className="setting-label">MCP servers</div>
-            <div className="setting-help">
-              Connect external Model Context Protocol servers to add tools (stdio)
-            </div>
-          </div>
-          <McpSection settings={props.settings} onChange={props.onChange} />
-        </div>
-
-        <div className="setting-row">
-          <div>
-            <div className="setting-label">Software updates</div>
-            <div className="setting-help">{updateMsg ?? 'Check for a new version of Grok Harness'}</div>
-          </div>
-          <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-            <select
-              value={props.settings.autoUpdate ? 'on' : 'off'}
-              onChange={(e) => void update({ autoUpdate: e.target.value === 'on' })}
+        <div className="settings-tabs" role="tablist">
+          {TABS.map((t) => (
+            <button
+              key={t}
+              role="tab"
+              aria-selected={tab === t}
+              className={`settings-tab${tab === t ? ' active' : ''}`}
+              onClick={() => setTab(t)}
             >
-              <option value="on">auto</option>
-              <option value="off">manual</option>
-            </select>
-            <button className="mini-btn" onClick={() => void checkUpdate()}>
-              check now
+              {t}
             </button>
-          </span>
+          ))}
         </div>
 
-        <div className="setting-row">
-          <div>
-            <div className="setting-label">Diagnostics</div>
-            <div className="setting-help">Open the folder with application logs</div>
-          </div>
-          <button className="mini-btn" onClick={() => void window.harness.revealLogs()}>
-            Reveal logs
-          </button>
-        </div>
+        <div className="settings-body">
+          {tab === 'General' && (
+            <>
+              <div className="setting-row">
+                <div>
+                  <div className="setting-label">Default model</div>
+                  <div className="setting-help">Used for new sessions</div>
+                </div>
+                <select
+                  value={props.settings.defaultModel}
+                  onChange={(e) => void update({ defaultModel: e.target.value as ModelId })}
+                >
+                  {MODELS.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-        <div className="setting-row">
-          <div>
-            <div className="setting-label">Account</div>
-            <div className="setting-help">{props.email ?? 'Signed in to xAI'}</div>
-          </div>
-          <button className="btn danger" onClick={props.onLogout}>
-            Sign out
-          </button>
+              <div className="setting-row">
+                <div>
+                  <div className="setting-label">Theme</div>
+                </div>
+                <select
+                  value={props.settings.theme}
+                  onChange={(e) => void update({ theme: e.target.value as Settings['theme'] })}
+                >
+                  <option value="dark">dark</option>
+                  <option value="light">light</option>
+                </select>
+              </div>
+
+              <div className="setting-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                <div style={{ marginBottom: 6 }}>
+                  <div className="setting-label">Custom instructions</div>
+                  <div className="setting-help">
+                    Appended to the agent&apos;s system prompt in every session
+                  </div>
+                </div>
+                <textarea
+                  defaultValue={props.settings.customInstructions}
+                  onBlur={(e) => void update({ customInstructions: e.target.value })}
+                  placeholder="e.g. Always use pnpm. Prefer TypeScript strict mode."
+                />
+              </div>
+            </>
+          )}
+
+          {tab === 'Agent' && (
+            <>
+              <div className="setting-row">
+                <div>
+                  <div className="setting-label">Permission mode</div>
+                  <div className="setting-help">
+                    ask: approve edits & commands · auto-edit: file edits run freely · full-auto:
+                    everything runs
+                  </div>
+                </div>
+                <select
+                  value={props.settings.permissionMode}
+                  onChange={(e) => void update({ permissionMode: e.target.value as PermissionMode })}
+                >
+                  <option value="ask">ask</option>
+                  <option value="auto-edit">auto-edit</option>
+                  <option value="full-auto">full-auto</option>
+                </select>
+              </div>
+
+              <div className="setting-row">
+                <div>
+                  <div className="setting-label">Web search</div>
+                  <div className="setting-help">
+                    Let Grok use xAI&apos;s built-in web and X search (runs on xAI servers)
+                  </div>
+                </div>
+                <select
+                  value={props.settings.enableWebSearch ? 'on' : 'off'}
+                  onChange={(e) => void update({ enableWebSearch: e.target.value === 'on' })}
+                >
+                  <option value="on">on</option>
+                  <option value="off">off</option>
+                </select>
+              </div>
+
+              <div className="setting-row">
+                <div>
+                  <div className="setting-label">Parallel subagents</div>
+                  <div className="setting-help">
+                    Let Grok spawn read-only investigation subagents that run in parallel
+                  </div>
+                </div>
+                <select
+                  value={props.settings.enableSubagents ? 'on' : 'off'}
+                  onChange={(e) => void update({ enableSubagents: e.target.value === 'on' })}
+                >
+                  <option value="on">on</option>
+                  <option value="off">off</option>
+                </select>
+              </div>
+            </>
+          )}
+
+          {tab === 'Memory' && (
+            <>
+              <div className="setting-row">
+                <div>
+                  <div className="setting-label">Memory</div>
+                  <div className="setting-help">
+                    Grok keeps bounded notes about you and your environment across sessions
+                  </div>
+                </div>
+                <select
+                  value={props.settings.memoryEnabled ? 'on' : 'off'}
+                  onChange={(e) => void update({ memoryEnabled: e.target.value === 'on' })}
+                >
+                  <option value="on">on</option>
+                  <option value="off">off</option>
+                </select>
+              </div>
+
+              <div className="setting-row">
+                <div>
+                  <div className="setting-label">Memory write approval</div>
+                  <div className="setting-help">
+                    Require your approval before memories are saved (foreground writes prompt
+                    inline, background review writes are staged below)
+                  </div>
+                </div>
+                <select
+                  value={props.settings.memoryWriteApproval ? 'on' : 'off'}
+                  onChange={(e) => void update({ memoryWriteApproval: e.target.value === 'on' })}
+                >
+                  <option value="off">off</option>
+                  <option value="on">on</option>
+                </select>
+              </div>
+
+              <div className="setting-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                <div style={{ marginBottom: 6 }}>
+                  <div className="setting-label">Memory contents</div>
+                </div>
+                <MemorySection cwd={props.activeCwd} />
+              </div>
+            </>
+          )}
+
+          {tab === 'Skills' && (
+            <div className="setting-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+              <div style={{ marginBottom: 6 }}>
+                <div className="setting-label">Skills</div>
+                <div className="setting-help">
+                  Reusable playbooks — written by the agent as it works, or installed from a
+                  GitHub repo / local folder containing SKILL.md files (bundled scripts and
+                  reference files are included)
+                </div>
+              </div>
+              <SkillsSection />
+            </div>
+          )}
+
+          {tab === 'MCP' && (
+            <div className="setting-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+              <div style={{ marginBottom: 6 }}>
+                <div className="setting-label">MCP servers</div>
+                <div className="setting-help">
+                  Connect external Model Context Protocol servers to add tools (stdio)
+                </div>
+              </div>
+              <McpSection settings={props.settings} onChange={props.onChange} />
+            </div>
+          )}
+
+          {tab === 'About' && (
+            <>
+              <div className="setting-row">
+                <div>
+                  <div className="setting-label">Software updates</div>
+                  <div className="setting-help">
+                    {updateMsg ?? 'Check for a new version of Grok Harness'}
+                  </div>
+                </div>
+                <span style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                  <select
+                    value={props.settings.autoUpdate ? 'on' : 'off'}
+                    onChange={(e) => void update({ autoUpdate: e.target.value === 'on' })}
+                  >
+                    <option value="on">auto</option>
+                    <option value="off">manual</option>
+                  </select>
+                  <button className="mini-btn" onClick={() => void checkUpdate()}>
+                    check now
+                  </button>
+                </span>
+              </div>
+
+              <div className="setting-row">
+                <div>
+                  <div className="setting-label">Diagnostics</div>
+                  <div className="setting-help">Open the folder with application logs</div>
+                </div>
+                <button className="mini-btn" onClick={() => void window.harness.revealLogs()}>
+                  Reveal logs
+                </button>
+              </div>
+
+              <div className="setting-row">
+                <div>
+                  <div className="setting-label">Account</div>
+                  <div className="setting-help">{props.email ?? 'Signed in to xAI'}</div>
+                </div>
+                <button className="btn danger" onClick={props.onLogout}>
+                  Sign out
+                </button>
+              </div>
+            </>
+          )}
         </div>
 
         <div className="modal-actions">

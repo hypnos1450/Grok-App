@@ -4,6 +4,9 @@
 // client-side function tools.
 import { authManager } from '../auth/store'
 import { XAI_API_BASE_URL } from '../auth/oauth'
+import { logger } from '../logger'
+
+const log = logger('provider')
 
 export interface ApiToolDef {
   type: 'function'
@@ -56,6 +59,8 @@ export interface CompletionResult {
   citations: string[]
   finishReason: string
   usage: { promptTokens: number; completionTokens: number; cachedTokens: number } | null
+  /** Model name the API reports it actually served (echoed in the response) */
+  servedModel?: string
 }
 
 export class ProviderError extends Error {
@@ -257,7 +262,8 @@ async function streamOnce(opts: {
     citations: [] as string[],
     finishReason: 'stop',
     usage: null as CompletionResult['usage'],
-    announcedServerCalls: new Set<string>()
+    announcedServerCalls: new Set<string>(),
+    servedModel: undefined as string | undefined
   }
 
   const decoder = new TextDecoder()
@@ -284,13 +290,20 @@ async function streamOnce(opts: {
     }
   }
 
+  if (state.servedModel && state.servedModel !== opts.model) {
+    log.warn(`requested model ${opts.model} but API served ${state.servedModel}`)
+  } else if (state.servedModel) {
+    log.info(`model: ${state.servedModel}`)
+  }
+
   return {
     content: state.content,
     reasoning: state.reasoning,
     toolCalls: state.toolCalls,
     citations: state.citations,
     finishReason: state.finishReason,
-    usage: state.usage
+    usage: state.usage,
+    servedModel: state.servedModel
   }
 }
 
@@ -302,6 +315,7 @@ type StreamState = {
   finishReason: string
   usage: CompletionResult['usage']
   announcedServerCalls: Set<string>
+  servedModel: string | undefined
 }
 
 const SERVER_TOOL_ITEM_TYPES = new Set([
@@ -317,6 +331,11 @@ function handleEvent(
   handlers?: StreamHandlers
 ): void {
   const type: string = ev.type ?? ''
+
+  // The API echoes the model it is actually serving on lifecycle events.
+  if (!state.servedModel && typeof ev.response?.model === 'string') {
+    state.servedModel = ev.response.model
+  }
 
   // Text deltas
   if (type === 'response.output_text.delta' && typeof ev.delta === 'string') {

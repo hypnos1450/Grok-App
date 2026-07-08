@@ -1008,6 +1008,337 @@ button {
   margin-top: 18px;
 }
 
+/* Tabbed settings modal */
+.settings-modal {
+  width: 560px;
+  height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* the body scrolls, not the whole modal */
+}
+.settings-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 12px;
+  flex-shrink: 0;
+}
+.settings-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-tertiary);
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 12px 8px;
+  cursor: pointer;
+}
+.settings-tab:hover {
+  color: var(--text);
+}
+.settings-tab.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+.settings-body {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+.settings-modal .modal-actions {
+  flex-shrink: 0;
+}
+
+/* Skill install */
+.skill-install {
+  margin-bottom: 10px;
+}
+.skill-install-report {
+  font-size: 12px;
+  margin-top: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.skill-install-report .ok {
+  color: var(--ok);
+}
+.skill-install-report .err {
+  color: var(--err);
+}
+.skill-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.skill-files code {
+  font-size: 11px;
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 1px 6px;
+}
+
+/* ------------------------------------------------------- right dock */
+.dock-rail {
+  width: 40px;
+  min-width: 40px;
+  border-left: 1px solid var(--border);
+  background: var(--bg-sidebar);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-top: 46px; /* clear the traffic lights / header line */
+}
+.rail-btn {
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: 7px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+.rail-btn:hover {
+  color: var(--text);
+  background: var(--bg-hover, rgba(128, 128, 128, 0.12));
+}
+.rail-btn.active {
+  color: var(--accent);
+  background: var(--accent-dim);
+}
+
+.dock-col {
+  width: 330px;
+  min-width: 330px;
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-sidebar);
+}
+.dock-col.wide {
+  width: 520px;
+  min-width: 520px;
+}
+
+.dock-panel {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border);
+}
+.dock-panel:last-child {
+  border-bottom: none;
+}
+.dock-panel-header {
+  height: 38px;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 0 12px;
+  border-bottom: 1px solid var(--border);
+}
+.dock-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.dock-panel-title svg {
+  opacity: 0.75;
+}
+.dock-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.dock-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.dock-empty {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  padding: 12px;
+}
+
+/* files panel */
+.files-tree {
+  padding: 6px 0;
+  font-size: 12.5px;
+}
+.file-node {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2.5px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-node:hover {
+  background: var(--bg-hover, rgba(128, 128, 128, 0.1));
+}
+.file-arrow {
+  display: inline-block;
+  width: 10px;
+  color: var(--text-tertiary);
+  transition: transform 0.12s;
+}
+.file-arrow.open {
+  transform: rotate(90deg);
+}
+.file-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-name.dir {
+  font-weight: 550;
+}
+
+/* preview panel */
+.preview-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.preview-path {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.preview-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 12px;
+}
+.preview-scroll.md {
+  font-size: 13px;
+  line-height: 1.55;
+}
+.preview-code {
+  font-size: 11.5px;
+  line-height: 1.5;
+  white-space: pre;
+}
+.preview-image {
+  max-width: 100%;
+}
+.preview-frame {
+  flex: 1;
+  border: none;
+  background: #fff;
+}
+
+/* tasks panel */
+.tasks-list {
+  padding: 4px 0;
+  font-size: 12.5px;
+}
+.tasks-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.task-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 12px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+.task-name {
+  font-weight: 550;
+}
+.task-detail {
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 11.5px;
+}
+
+/* terminal panel */
+.term-wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.term-out {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  margin: 0;
+  padding: 10px 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--text);
+}
+.term-error {
+  color: var(--err);
+  font-size: 11.5px;
+  padding: 4px 12px;
+}
+.term-input-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-top: 1px solid var(--border);
+}
+.term-prompt {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+.term-input {
+  flex: 1;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: 7px;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  padding: 5px 8px;
+  outline: none;
+}
+
+/* served-model badge under assistant messages */
+.assistant-model {
+  font-size: 10.5px;
+  color: var(--text-tertiary);
+  margin-top: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  opacity: 0.8;
+}
+
 ::-webkit-scrollbar { width: 10px; height: 10px; }
 ::-webkit-scrollbar-thumb {
   background: var(--border-strong);

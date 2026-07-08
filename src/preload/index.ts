@@ -1,5 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron'
-import type { AgentEvent, Attachments, HarnessApi, ModelId, Settings, UpdateInfo } from '@shared/types'
+import type {
+  AgentEvent,
+  Attachments,
+  HarnessApi,
+  ModelId,
+  Settings,
+  TermData,
+  UpdateInfo
+} from '@shared/types'
 
 const api: HarnessApi = {
   auth: {
@@ -51,10 +59,26 @@ const api: HarnessApi = {
     get: (name: string) => ipcRenderer.invoke('skills:get', name),
     remove: (name: string) => ipcRenderer.invoke('skills:remove', name),
     pending: () => ipcRenderer.invoke('skills:pending'),
-    resolvePending: (id, approve) => ipcRenderer.invoke('skills:resolvePending', id, approve)
+    resolvePending: (id, approve) => ipcRenderer.invoke('skills:resolvePending', id, approve),
+    installGithub: (url: string) => ipcRenderer.invoke('skills:installGithub', url),
+    importFolder: () => ipcRenderer.invoke('skills:importFolder')
   },
   files: {
     suggest: (sessionId, query) => ipcRenderer.invoke('files:suggest', sessionId, query)
+  },
+  panels: {
+    listDir: (sessionId, rel) => ipcRenderer.invoke('panels:listDir', sessionId, rel),
+    readFile: (sessionId, rel) => ipcRenderer.invoke('panels:readFile', sessionId, rel)
+  },
+  term: {
+    run: (sessionId, command) => ipcRenderer.invoke('term:run', sessionId, command),
+    kill: (sessionId) => ipcRenderer.invoke('term:kill', sessionId),
+    snapshot: (sessionId) => ipcRenderer.invoke('term:snapshot', sessionId),
+    onData: (cb: (data: TermData) => void) => {
+      const l = (_e: Electron.IpcRendererEvent, data: TermData): void => cb(data)
+      ipcRenderer.on('term:data', l)
+      return () => ipcRenderer.removeListener('term:data', l)
+    }
   },
   settings: {
     get: () => ipcRenderer.invoke('settings:get'),

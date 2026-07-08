@@ -3,7 +3,7 @@
 export type ModelId = 'grok-4.3' | 'grok-build-0.1'
 
 export const MODELS: { id: ModelId; label: string; blurb: string }[] = [
-  { id: 'grok-build-0.1', label: 'Grok Build', blurb: 'Fast agentic coding · 256K context' },
+  { id: 'grok-build-0.1', label: 'Grok Build', blurb: 'Grok 4.5 · agentic coding · 500K context' },
   { id: 'grok-4.3', label: 'Grok 4.3', blurb: 'Flagship reasoning · 1M context' }
 ]
 
@@ -166,6 +166,8 @@ export interface SkillMeta {
   description: string
   /** ISO date of last update */
   updated: string
+  /** Number of bundled resource files (scripts, references) beside SKILL.md */
+  fileCount?: number
 }
 
 export interface PendingSkillWrite {
@@ -176,6 +178,11 @@ export interface PendingSkillWrite {
   description?: string
   content?: string
   source: 'auto' | 'agent'
+}
+
+export interface SkillImportReport {
+  installed: string[]
+  errors: string[]
 }
 
 export interface CheckpointInfo {
@@ -224,6 +231,41 @@ export interface McpServerStatus {
   connected: boolean
   toolCount: number
   error?: string
+}
+
+// ---- right dock panels
+
+export interface FileEntry {
+  name: string
+  /** Path relative to the session cwd */
+  rel: string
+  isDir: boolean
+}
+
+export type FilePreview =
+  | { kind: 'text'; content: string; truncated: boolean; size: number }
+  | { kind: 'image'; dataUrl: string; size: number }
+  | { kind: 'binary'; size: number }
+  | { kind: 'too-large'; size: number }
+  | { kind: 'error'; message: string }
+
+export interface TermSnapshot {
+  /** Accumulated output (tail, capped) */
+  buffer: string
+  running: boolean
+  /** Last command that was run, if any */
+  command?: string
+  /** Exit code of the last finished command */
+  exitCode?: number | null
+}
+
+export interface TermData {
+  sessionId: string
+  /** New output chunk (may be empty on the final event) */
+  chunk: string
+  /** Present when the process finished */
+  done?: boolean
+  exitCode?: number | null
 }
 
 export interface Attachments {
@@ -283,13 +325,30 @@ export interface HarnessApi {
   }
   skills: {
     list(): Promise<SkillMeta[]>
-    get(name: string): Promise<{ meta: SkillMeta; content: string } | null>
+    get(name: string): Promise<{ meta: SkillMeta; content: string; dir: string; files: string[] } | null>
     remove(name: string): Promise<void>
     pending(): Promise<PendingSkillWrite[]>
     resolvePending(id: string | 'all', approve: boolean): Promise<PendingSkillWrite[]>
+    /** Install SKILL.md skills from a GitHub repo/folder/file URL */
+    installGithub(url: string): Promise<SkillImportReport>
+    /** Pick a local folder and install the SKILL.md skills inside (null = cancelled) */
+    importFolder(): Promise<SkillImportReport | null>
   }
   files: {
     suggest(sessionId: string, query: string): Promise<string[]>
+  }
+  panels: {
+    /** List a directory (relative to the session cwd) for the Files panel */
+    listDir(sessionId: string, rel: string): Promise<FileEntry[]>
+    /** Read a workspace file for the Preview panel */
+    readFile(sessionId: string, rel: string): Promise<FilePreview>
+  }
+  term: {
+    /** Run a shell command in the session cwd (one at a time per session) */
+    run(sessionId: string, command: string): Promise<{ ok: boolean; error?: string }>
+    kill(sessionId: string): Promise<void>
+    snapshot(sessionId: string): Promise<TermSnapshot>
+    onData(cb: (data: TermData) => void): () => void
   }
   settings: {
     get(): Promise<Settings>

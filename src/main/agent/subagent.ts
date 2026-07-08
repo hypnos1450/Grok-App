@@ -25,7 +25,7 @@ async function runOne(task: string, cwd: string, model: string, signal: AbortSig
   for (let turn = 0; turn < SUBAGENT_MAX_TURNS; turn++) {
     if (signal.aborted) return '(subagent cancelled)'
     const result = await streamCompletion({
-      model: profile.id,
+      model: profile.apiModel,
       messages,
       tools: tools.map((t) => t.def),
       maxOutputTokens: 4000,

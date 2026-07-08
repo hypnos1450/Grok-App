@@ -148,6 +148,11 @@ function AssistantView({ item }: { item: Extract<ChatItem, { kind: 'assistant' }
           ))}
         </div>
       )}
+      {item.model && (
+        <div className="assistant-model" title="Model that generated this response (as reported by the xAI API)">
+          {item.model}
+        </div>
+      )}
     </div>
   )
 }

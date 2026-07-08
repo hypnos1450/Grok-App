@@ -153,7 +153,7 @@ export class AgentRun {
         const assistantId = id()
         let streamedText = ''
         const result = await streamCompletion({
-          model: profile.id,
+          model: profile.apiModel,
           messages: this.buildMessages(),
           tools: toolDefsForRun,
           serverTools: this.settings.enableWebSearch,
@@ -213,7 +213,8 @@ export class AgentRun {
             text: result.content || streamedText,
             reasoning: result.reasoning || undefined,
             citations: result.citations.length ? result.citations : undefined,
-            model: profile.id
+            // Prefer the model the API says it served — visible proof in the UI.
+            model: result.servedModel ?? profile.apiModel
           }
           this.pushItem(item, true)
         }
@@ -292,7 +293,7 @@ export class AgentRun {
     const skillsIndex = skillStore.index() || '(no skills saved yet)'
     const failures = recurringFailures()
     const result = await streamCompletion({
-      model: this.session.meta.model,
+      model: profileFor(this.session.meta.model).apiModel,
       messages: [
         { role: 'system', content: REVIEW_PROMPT },
         {
@@ -584,7 +585,7 @@ export class AgentRun {
     const kept = this.session.apiMessages.slice(cut)
 
     const summaryResult = await streamCompletion({
-      model: profile.id,
+      model: profile.apiModel,
       messages: [
         { role: 'system', content: COMPACTION_PROMPT },
         {
@@ -627,7 +628,7 @@ export class AgentRun {
   private async generateTitle(userText: string): Promise<void> {
     try {
       const result = await streamCompletion({
-        model: this.session.meta.model,
+        model: profileFor(this.session.meta.model).apiModel,
         messages: [
           {
             role: 'system',

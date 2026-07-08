@@ -6,6 +6,12 @@ import { ModelId } from '@shared/types'
 
 export interface ModelProfile {
   id: ModelId
+  /**
+   * Model name sent on the wire to the xAI API. Decoupled from `id` (the
+   * internal/UI key persisted in sessions) so we can re-point a menu option at
+   * a newer underlying model without breaking saved sessions or settings.
+   */
+  apiModel: string
   contextWindow: number
   maxOutputTokens: number
   /** Fraction of the context window at which the loop compacts history */
@@ -77,7 +83,8 @@ Alongside factual memory you keep skills: reusable playbooks managed with the sk
 - BEFORE starting a workflow an indexed skill covers, read that skill and follow it — do not re-derive a procedure you already documented.
 - AFTER completing a non-obvious multi-step procedure that will recur (deploy steps, codegen, release ritual, tricky test setup), save it as a skill: numbered steps, exact commands, the gotchas that bit you.
 - When a skill's documented procedure proves wrong or incomplete, update it in the same turn you discover the problem.
-- Skills are focused playbooks (one workflow each), not documentation dumps.`
+- Skills are focused playbooks (one workflow each), not documentation dumps.
+- Some skills (typically user-installed) bundle resource files — scripts, templates, reference docs. Reading such a skill lists them with their directory; run or read them from there when the playbook calls for it.`
 
 function workspaceBlock(opts: SystemPromptOpts): string {
   const parts = [
@@ -109,15 +116,15 @@ const GROK_43_ADDENDUM = `# Model guidance (Grok 4.3)
 - When debugging, reproduce the failure first, then reason from the observed error — not from what the code "should" do.`
 
 // ------------------------------------------------------------- Grok Build
-// Fast agentic coding model. 256K context, optimized for tight edit-verify
-// loops. Tuned to: plan-first workflow (matching how the model was trained in
-// Grok Build CLI), small focused diffs, frequent cheap verification, and
-// disciplined context hygiene since the window is a quarter of Grok 4.3's.
-const GROK_BUILD_ADDENDUM = `# Model guidance (Grok Build)
+// "Grok Build" now runs Grok 4.5 (wire model grok-4.5) — xAI's default coding
+// model in Grok Build, 500K context with native reasoning. Tuned to: plan-first
+// workflow (matching how Grok Build CLI drives it), small focused diffs,
+// frequent cheap verification, and disciplined context hygiene.
+const GROK_BUILD_ADDENDUM = `# Model guidance (Grok Build — Grok 4.5)
 - Not every message is a task. Questions, explanations, and discussion get a direct answer with no plan and no tool calls.
 - Work plan-first: before touching files on any multi-step task, write a numbered plan of the concrete edits and checks you will make. Then execute it step by step, adjusting as needed.
 - Prefer many small, verified steps over one big change: make a focused edit, run a quick check (typecheck, targeted test, or the command that exercises the change), then proceed.
-- Keep context lean — your window is 256K tokens. Read files with offset/limit when you only need a region, use grep to locate before you read, and avoid re-reading files you already have.
+- Keep context lean — your window is 500K tokens. Read files with offset/limit when you only need a region, use grep to locate before you read, and avoid re-reading files you already have.
 - One concern per edit_file call. Batch independent reads in parallel, but apply mutations sequentially so failures are attributable.
 - If a task turns out to be deeper than it looked (architectural change, ambiguous requirements), pause and present the decision to the user rather than churning.`
 
@@ -138,6 +145,7 @@ function assemble(core: string[], opts: SystemPromptOpts): string {
 export const PROFILES: Record<ModelId, ModelProfile> = {
   'grok-4.3': {
     id: 'grok-4.3',
+    apiModel: 'grok-4.3',
     contextWindow: 1_000_000,
     maxOutputTokens: 16_384,
     compactAt: 0.75,
@@ -147,9 +155,13 @@ export const PROFILES: Record<ModelId, ModelProfile> = {
   },
   'grok-build-0.1': {
     id: 'grok-build-0.1',
-    contextWindow: 256_000,
-    maxOutputTokens: 8_192,
-    compactAt: 0.7,
+    // "Grok Build" now runs Grok 4.5 — xAI's default coding model in Grok Build
+    // (500K context, vision, server-side web/X search). The internal id stays
+    // grok-build-0.1 so previously-saved sessions keep resolving to this profile.
+    apiModel: 'grok-4.5',
+    contextWindow: 500_000,
+    maxOutputTokens: 16_384,
+    compactAt: 0.75,
     temperature: 0.1,
     maxTurns: 80,
     systemPrompt: (opts) => assemble([HARNESS_CORE, GROK_BUILD_ADDENDUM], opts)

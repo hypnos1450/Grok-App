@@ -17,6 +17,8 @@ import { AgentRun } from './agent/loop'
 import { restoreCheckpoint } from './agent/checkpoints'
 import { MemoryTarget, memoryStore } from './agent/memory'
 import { skillStore } from './agent/skills'
+import { importSkillFolder, installFromGitHub } from './agent/skill-install'
+import { listDir, readFilePreview, termManager } from './panels'
 import { mcpManager } from './agent/mcp'
 import { gitStatus } from './agent/git'
 import { logsDirectory } from './logger'
@@ -273,6 +275,17 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   handle('skills:resolvePending', (_e, pid: string | 'all', approve: boolean) =>
     skillStore.resolvePending(pid, approve)
   )
+  handle('skills:installGithub', (_e, url: string) => installFromGitHub(String(url)))
+  handle('skills:importFolder', async () => {
+    const win = getWindow()
+    if (!win) return null
+    const res = await dialog.showOpenDialog(win, {
+      title: 'Choose a folder containing a SKILL.md',
+      properties: ['openDirectory']
+    })
+    if (res.canceled || res.filePaths.length === 0) return null
+    return importSkillFolder(res.filePaths[0])
+  })
 
   // ---- files
   handle('files:suggest', async (_e, sessionId: string, query: string) => {
@@ -280,6 +293,24 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     if (!rec) return []
     return suggestFiles(rec.meta.cwd, query)
   })
+
+  // ---- right dock panels
+  handle('panels:listDir', async (_e, sessionId: string, rel: string) => {
+    const rec = await sessionStore.load(sessionId)
+    return rec ? listDir(rec.meta.cwd, String(rel ?? '')) : []
+  })
+  handle('panels:readFile', async (_e, sessionId: string, rel: string) => {
+    const rec = await sessionStore.load(sessionId)
+    if (!rec) return { kind: 'error', message: 'Session not found.' }
+    return readFilePreview(rec.meta.cwd, String(rel ?? ''))
+  })
+  handle('term:run', async (_e, sessionId: string, command: string) => {
+    const rec = await sessionStore.load(sessionId)
+    if (!rec) return { ok: false, error: 'Session not found.' }
+    return termManager.run(sessionId, rec.meta.cwd, String(command ?? ''))
+  })
+  handle('term:kill', (_e, sessionId: string) => termManager.kill(sessionId))
+  handle('term:snapshot', (_e, sessionId: string) => termManager.snapshot(sessionId))
 
   // ---- mcp
   handle('mcp:status', () => mcpManager.status())

@@ -55,6 +55,25 @@ export function scanEntry(content: string): string | null {
   return null
 }
 
+// Skill bodies are read on demand into the conversation (not the system
+// prompt), and legitimate playbooks routinely show credential-shaped examples
+// ("password: ...") or curl pipelines. Only block outright instruction
+// hijacking and invisible-unicode smuggling here; command execution stays
+// behind the normal bash permission gate.
+const BODY_THREAT_PATTERNS = [THREAT_PATTERNS[0], THREAT_PATTERNS[1]]
+
+export function scanSkillBody(content: string): string | null {
+  if (INVISIBLE_UNICODE.test(content)) {
+    return 'Skill content contains invisible Unicode characters and was rejected.'
+  }
+  for (const p of BODY_THREAT_PATTERNS) {
+    if (p.test(content)) {
+      return 'Skill content matches a prompt-injection pattern and was rejected.'
+    }
+  }
+  return null
+}
+
 class MemoryStore {
   private dir(): string {
     return path.join(app.getPath('userData'), 'memories')
