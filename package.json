@@ -4,7 +4,10 @@
   "version": "0.2.0",
   "description": "Desktop agent harness for xAI Grok 4.3 and Grok Build, with xAI subscription OAuth",
   "main": "out/main/index.js",
-  "author": "Matt",
+  "author": {
+    "name": "Matt",
+    "email": "counting7487@gmail.com"
+  },
   "license": "MIT",
   "private": true,
   "scripts": {
