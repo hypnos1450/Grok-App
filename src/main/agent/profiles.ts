@@ -12,6 +12,8 @@ export interface ModelProfile {
    * a newer underlying model without breaking saved sessions or settings.
    */
   apiModel: string
+  /** Model accepts reasoning: {effort} on the Responses API (grok-4.5+) */
+  supportsReasoningEffort?: boolean
   contextWindow: number
   maxOutputTokens: number
   /** Fraction of the context window at which the loop compacts history */
@@ -47,7 +49,7 @@ You have these tools: bash, read_file, write_file, edit_file, list_dir, glob, gr
 - Reach for tools only when the request actually depends on this machine's state (their files, their code, installed versions, command output) or asks you to make changes or run something.
 - If a quick reply covers it, give the quick reply. A question like "what does a 401 mean?" or "which approach is better?" never needs bash.
 - When unsure whether the user means their code or code in general, prefer answering directly and offer to check the workspace.
-- You also have built-in web search and X search that run server-side. Use them when the answer depends on current or external information — latest library versions, recent releases or news, unfamiliar error messages, up-to-date docs — instead of guessing from stale knowledge. Never use bash (curl, wget, ping) to look things up on the web; the built-in search is faster and returns cited sources.
+- You also have built-in web search and X search that run server-side. Use them when the answer depends on current or external information — latest library versions, recent releases or news, unfamiliar error messages, up-to-date docs — instead of guessing from stale knowledge. When search surfaces a page you need in full (docs, an article, a README), read it with fetch_page. Never use bash (curl, wget, ping) to look things up on the web; search + fetch_page are faster and safer.
 
 # Using tools (when the task does call for them)
 - Issue MULTIPLE INDEPENDENT tool calls in a single response whenever possible (e.g. read three files at once, or grep while listing a directory). Round trips are the main source of latency.
@@ -56,6 +58,7 @@ You have these tools: bash, read_file, write_file, edit_file, list_dir, glob, gr
 - Tool outputs may be truncated. If output looks cut off, re-run with a narrower scope (offset/limit, tighter grep) rather than guessing at the missing part.
 
 # Working style
+- On any task needing 3+ distinct steps, publish a short plan with update_plan before you start, mark steps done as you complete them, and revise it if the plan changes. The user watches this checklist live — keep it honest. Skip it for quick answers and one-step tasks.
 - Verify your work. After making changes, run the relevant build, test, or a quick sanity command before declaring success. If verification fails, fix it — do not report broken work as done.
 - Report outcomes honestly: failing tests, skipped steps, and uncertainty all get stated plainly.
 - Match the existing codebase's style, naming, and conventions. Read neighboring code before writing new code.
@@ -159,6 +162,7 @@ export const PROFILES: Record<ModelId, ModelProfile> = {
     // (500K context, vision, server-side web/X search). The internal id stays
     // grok-build-0.1 so previously-saved sessions keep resolving to this profile.
     apiModel: 'grok-4.5',
+    supportsReasoningEffort: true,
     contextWindow: 500_000,
     maxOutputTokens: 16_384,
     compactAt: 0.75,

@@ -24,6 +24,7 @@ const api: HarnessApi = {
     delete: (id) => ipcRenderer.invoke('sessions:delete', id),
     rename: (id, title) => ipcRenderer.invoke('sessions:rename', id, title),
     setModel: (id, model: ModelId) => ipcRenderer.invoke('sessions:setModel', id, model),
+    setEffort: (id, effort) => ipcRenderer.invoke('sessions:setEffort', id, effort),
     restoreCheckpoint: (sessionId, itemId) =>
       ipcRenderer.invoke('sessions:restoreCheckpoint', sessionId, itemId),
     fork: (sessionId, itemId) => ipcRenderer.invoke('sessions:fork', sessionId, itemId),
@@ -61,7 +62,8 @@ const api: HarnessApi = {
     pending: () => ipcRenderer.invoke('skills:pending'),
     resolvePending: (id, approve) => ipcRenderer.invoke('skills:resolvePending', id, approve),
     installGithub: (url: string) => ipcRenderer.invoke('skills:installGithub', url),
-    importFolder: () => ipcRenderer.invoke('skills:importFolder')
+    importFolder: () => ipcRenderer.invoke('skills:importFolder'),
+    reveal: (name: string) => ipcRenderer.invoke('skills:reveal', name)
   },
   files: {
     suggest: (sessionId, query) => ipcRenderer.invoke('files:suggest', sessionId, query)

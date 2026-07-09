@@ -9,6 +9,7 @@ import {
   DEFAULT_SETTINGS,
   ModelId,
   PermissionRequest,
+  ReasoningEffort,
   Settings
 } from '@shared/types'
 import { authManager } from './auth/store'
@@ -108,7 +109,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       ts: c.ts,
       fileCount: c.files.length
     }))
-    return { meta: rec.meta, items: rec.items, checkpoints }
+    return { meta: rec.meta, items: rec.items, checkpoints, plan: rec.plan }
   })
   handle('sessions:restoreCheckpoint', async (_e, sessionId: string, itemId: string) => {
     if (runs.has(sessionId)) throw new Error('Stop the agent before restoring a checkpoint')
@@ -144,6 +145,14 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     const rec = await sessionStore.load(sessionId)
     if (rec) {
       rec.meta.model = model
+      await sessionStore.save(rec)
+    }
+  })
+  handle('sessions:setEffort', async (_e, sessionId: string, effort: ReasoningEffort | null) => {
+    const rec = await sessionStore.load(sessionId)
+    if (rec) {
+      rec.meta.reasoningEffort =
+        effort === 'low' || effort === 'medium' || effort === 'high' ? effort : undefined
       await sessionStore.save(rec)
     }
   })
@@ -276,6 +285,10 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     skillStore.resolvePending(pid, approve)
   )
   handle('skills:installGithub', (_e, url: string) => installFromGitHub(String(url)))
+  handle('skills:reveal', (_e, name: string) => {
+    const skill = skillStore.read(String(name))
+    if (skill) shell.showItemInFolder(path.join(skill.dir, 'SKILL.md'))
+  })
   handle('skills:importFolder', async () => {
     const win = getWindow()
     if (!win) return null

@@ -4,6 +4,7 @@ import { spawn } from 'node:child_process'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
+import { PlanStep } from '@shared/types'
 import { ApiToolDef } from './provider'
 import { newFilePreview, unifiedDiff } from './diff'
 import { MemoryTarget, memoryStore } from './memory'
@@ -21,6 +22,8 @@ export interface ToolContext {
   signal: AbortSignal
   /** Called with the absolute path before a file tool mutates it (checkpoints) */
   onBeforeMutate?: (absPath: string) => Promise<void>
+  /** Called when the agent publishes a plan via update_plan */
+  onPlan?: (steps: PlanStep[]) => void
 }
 
 export interface ToolResult {
@@ -552,6 +555,173 @@ const memoryTool: Tool = {
   }
 }
 
+// ------------------------------------------------------------- fetch_page
+
+const FETCH_MAX_BYTES = 2 * 1024 * 1024
+const FETCH_MAX_CHARS = 40_000
+const PRIVATE_HOST_RE =
+  /^(localhost|127\.|0\.|10\.|192\.168\.|169\.254\.|172\.(1[6-9]|2\d|3[01])\.|\[?::1\]?$|\[?f[cd])/i
+
+/** Strip an HTML document down to readable text (title, headings, prose, links). */
+export function htmlToText(html: string): string {
+  let s = html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<noscript[\s\S]*?<\/noscript>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+  const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(s)?.[1]?.trim()
+  s = s
+    .replace(/<(h[1-6])[^>]*>/gi, '\n\n# ')
+    .replace(/<\/(h[1-6])>/gi, '\n')
+    .replace(/<(li)[^>]*>/gi, '\n- ')
+    .replace(/<(br|\/p|\/div|\/tr|\/section|\/article)[^>]*>/gi, '\n')
+    .replace(/<a\s[^>]*href="(https?:\/\/[^"]*)"[^>]*>([\s\S]*?)<\/a>/gi, '$2 ($1)')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n\s+/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+  return title ? `Title: ${title}\n\n${s}` : s
+}
+
+const fetchPageTool: Tool = {
+  name: 'fetch_page',
+  kind: 'read',
+  def: {
+    type: 'function',
+    function: {
+      name: 'fetch_page',
+      description:
+        'Fetch a web page (or JSON/text URL) and return its readable content. Use this to read a full page that web_search only summarized — docs, articles, READMEs, API responses. Public URLs only.',
+      parameters: {
+        type: 'object',
+        properties: {
+          url: { type: 'string', description: 'http(s) URL to fetch' }
+        },
+        required: ['url']
+      }
+    }
+  },
+  summarize: (input) => String(input.url ?? ''),
+  run: async (input, ctx) => {
+    let url: URL
+    try {
+      url = new URL(String(input.url ?? ''))
+    } catch {
+      return { ok: false, output: 'Invalid URL.' }
+    }
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+      return { ok: false, output: 'Only http(s) URLs can be fetched.' }
+    }
+    if (PRIVATE_HOST_RE.test(url.hostname)) {
+      return { ok: false, output: 'Refusing to fetch local/private addresses.' }
+    }
+    const timeout = AbortSignal.timeout(20_000)
+    const signal = AbortSignal.any([ctx.signal, timeout])
+    let res: Response
+    try {
+      res = await fetch(url, {
+        signal,
+        redirect: 'follow',
+        headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GrokHarness/1.0)', Accept: 'text/html,application/json,text/*;q=0.9,*/*;q=0.5' }
+      })
+    } catch (err) {
+      return { ok: false, output: `Fetch failed: ${err instanceof Error ? err.message : String(err)}` }
+    }
+    if (!res.ok) return { ok: false, output: `HTTP ${res.status} ${res.statusText}` }
+    const ctype = res.headers.get('content-type') ?? ''
+    if (!/text|json|xml|javascript/i.test(ctype)) {
+      return { ok: false, output: `Unsupported content type: ${ctype || 'unknown'} (only text-like content).` }
+    }
+    // Stream with a byte cap so a huge page can't blow up memory.
+    const reader = res.body?.getReader()
+    if (!reader) return { ok: false, output: 'Empty response.' }
+    const chunks: Uint8Array[] = []
+    let total = 0
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      total += value.byteLength
+      chunks.push(value)
+      if (total >= FETCH_MAX_BYTES) {
+        void reader.cancel()
+        break
+      }
+    }
+    const raw = Buffer.concat(chunks).toString('utf8')
+    const text = /html/i.test(ctype) ? htmlToText(raw) : raw
+    const clipped = text.length > FETCH_MAX_CHARS
+    return {
+      ok: true,
+      output:
+        `[${url.href}]\n` +
+        text.slice(0, FETCH_MAX_CHARS) +
+        (clipped || total >= FETCH_MAX_BYTES ? '\n\n[...truncated]' : '')
+    }
+  }
+}
+
+// ------------------------------------------------------------ update_plan
+
+const PLAN_STATUSES = new Set(['pending', 'active', 'done'])
+
+const updatePlanTool: Tool = {
+  name: 'update_plan',
+  kind: 'read',
+  def: {
+    type: 'function',
+    function: {
+      name: 'update_plan',
+      description:
+        'Publish or update your live plan for the current task — a short checklist the user sees beside the chat. ' +
+        'Call it when you start a multi-step task (all steps pending, first active), and again whenever a step completes or the plan changes. ' +
+        'Each call replaces the whole plan. Skip it for single-step or conversational requests.',
+      parameters: {
+        type: 'object',
+        properties: {
+          steps: {
+            type: 'array',
+            description: '3-10 short imperative steps in execution order',
+            items: {
+              type: 'object',
+              properties: {
+                title: { type: 'string', description: 'Short step description' },
+                status: { type: 'string', enum: ['pending', 'active', 'done'] }
+              },
+              required: ['title', 'status']
+            }
+          }
+        },
+        required: ['steps']
+      }
+    }
+  },
+  summarize: (input) => {
+    const steps = Array.isArray(input.steps) ? input.steps : []
+    const done = steps.filter((s) => (s as PlanStep)?.status === 'done').length
+    return `${done}/${steps.length} steps done`
+  },
+  run: async (input, ctx) => {
+    const raw = Array.isArray(input.steps) ? input.steps : []
+    const steps: PlanStep[] = []
+    for (const s of raw.slice(0, 20)) {
+      const title = String((s as Record<string, unknown>)?.title ?? '').trim().slice(0, 120)
+      const status = String((s as Record<string, unknown>)?.status ?? 'pending')
+      if (!title) continue
+      steps.push({ title, status: PLAN_STATUSES.has(status) ? (status as PlanStep['status']) : 'pending' })
+    }
+    if (!steps.length) return { ok: false, output: 'Provide at least one step with a title.' }
+    ctx.onPlan?.(steps)
+    return { ok: true, output: `Plan updated (${steps.length} steps).` }
+  }
+}
+
 // ----------------------------------------------------------------- skill
 
 const skillTool: Tool = {
@@ -682,14 +852,14 @@ const sessionSearchTool: Tool = {
 
 export const TOOLS: Tool[] = [
   bashTool, readFileTool, writeFileTool, editFileTool, listDirTool, globTool, grepTool,
-  memoryTool, skillTool, sessionSearchTool, spawnAgentTool
+  fetchPageTool, updatePlanTool, memoryTool, skillTool, sessionSearchTool, spawnAgentTool
 ]
 
 export const toolByName = new Map(TOOLS.map((t) => [t.name, t]))
 
 /** Read-only tools handed to subagents (no writes, shell, memory, or recursion). */
 export function subagentTools(): Tool[] {
-  return [readFileTool, listDirTool, globTool, grepTool, sessionSearchTool]
+  return [readFileTool, listDirTool, globTool, grepTool, sessionSearchTool, fetchPageTool]
 }
 
 export function toolDefs(opts?: { memory?: boolean }): ApiToolDef[] {

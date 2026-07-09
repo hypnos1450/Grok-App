@@ -152,13 +152,16 @@ export class AgentRun {
 
         const assistantId = id()
         let streamedText = ''
-        const result = await streamCompletion({
+        const result = await this.streamWithRetry({
           model: profile.apiModel,
           messages: this.buildMessages(),
           tools: toolDefsForRun,
           serverTools: this.settings.enableWebSearch,
           maxOutputTokens: profile.maxOutputTokens,
           temperature: profile.temperature,
+          reasoningEffort: profile.supportsReasoningEffort
+            ? this.session.meta.reasoningEffort
+            : undefined,
           signal: this.abort.signal,
           handlers: {
             onTextDelta: (text) => {
@@ -273,6 +276,38 @@ export class AgentRun {
     }
   }
 
+  /**
+   * One automatic retry on transient provider failures (5xx, network drops,
+   * short rate limits) so a single blip doesn't kill a long agentic turn.
+   */
+  private async streamWithRetry(
+    opts: Parameters<typeof streamCompletion>[0]
+  ): Promise<Awaited<ReturnType<typeof streamCompletion>>> {
+    try {
+      return await streamCompletion(opts)
+    } catch (err) {
+      const retryable =
+        err instanceof ProviderError &&
+        err.retryable &&
+        !this.cancelled &&
+        !this.abort.signal.aborted
+      if (!retryable) throw err
+      // Wait out a known rate-limit reset (up to 20s), otherwise a short pause.
+      const waitMs = err.retryAt
+        ? Math.min(Math.max(err.retryAt - Date.now(), 1000), 20_000)
+        : 3000
+      this.emit({
+        type: 'notice',
+        sessionId: this.session.meta.id,
+        level: 'info',
+        message: `Transient API error — retrying in ${Math.round(waitMs / 1000)}s…`
+      })
+      await new Promise((res) => setTimeout(res, waitMs))
+      if (this.cancelled || this.abort.signal.aborted) throw err
+      return await streamCompletion(opts)
+    }
+  }
+
   // ---------------------------------------------------- background review
 
   private async backgroundReview(): Promise<void> {
@@ -292,8 +327,11 @@ export class AgentRun {
     const memoryState = memoryStore.snapshot(cwd) || '(all memory stores are currently empty)'
     const skillsIndex = skillStore.index() || '(no skills saved yet)'
     const failures = recurringFailures()
+    const reviewProfile = profileFor(this.session.meta.model)
     const result = await streamCompletion({
-      model: profileFor(this.session.meta.model).apiModel,
+      model: reviewProfile.apiModel,
+      // Distillation doesn't need deep reasoning — keep background calls cheap.
+      reasoningEffort: reviewProfile.supportsReasoningEffort ? 'low' : undefined,
       messages: [
         { role: 'system', content: REVIEW_PROMPT },
         {
@@ -410,7 +448,11 @@ export class AgentRun {
       cwd: this.session.meta.cwd,
       sessionId,
       signal: this.abort.signal,
-      onBeforeMutate: (absPath) => recordOriginal(this.session, this.checkpointId, absPath)
+      onBeforeMutate: (absPath) => recordOriginal(this.session, this.checkpointId, absPath),
+      onPlan: (steps) => {
+        this.session.plan = steps
+        this.emit({ type: 'plan', sessionId, steps })
+      }
     }
 
     let preview: string | undefined
@@ -627,8 +669,10 @@ export class AgentRun {
 
   private async generateTitle(userText: string): Promise<void> {
     try {
+      const titleProfile = profileFor(this.session.meta.model)
       const result = await streamCompletion({
-        model: profileFor(this.session.meta.model).apiModel,
+        model: titleProfile.apiModel,
+        reasoningEffort: titleProfile.supportsReasoningEffort ? 'low' : undefined,
         messages: [
           {
             role: 'system',

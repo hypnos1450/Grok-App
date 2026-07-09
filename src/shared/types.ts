@@ -2,8 +2,13 @@
 
 export type ModelId = 'grok-4.3' | 'grok-build-0.1'
 
-export const MODELS: { id: ModelId; label: string; blurb: string }[] = [
-  { id: 'grok-build-0.1', label: 'Grok Build', blurb: 'Grok 4.5 · agentic coding · 500K context' },
+export const MODELS: { id: ModelId; label: string; blurb: string; effort?: boolean }[] = [
+  {
+    id: 'grok-build-0.1',
+    label: 'Grok Build',
+    blurb: 'Grok 4.5 · agentic coding · 500K context',
+    effort: true
+  },
   { id: 'grok-4.3', label: 'Grok 4.3', blurb: 'Flagship reasoning · 1M context' }
 ]
 
@@ -64,6 +69,8 @@ export const DEFAULT_SETTINGS: Settings = {
 /** Current on-disk schema version for sessions and settings. */
 export const SCHEMA_VERSION = 1
 
+export type ReasoningEffort = 'low' | 'medium' | 'high'
+
 export interface SessionMeta {
   id: string
   title: string
@@ -72,10 +79,18 @@ export interface SessionMeta {
   model: ModelId
   cwd: string
   messageCount: number
+  /** Reasoning depth for models that support it (undefined = API default) */
+  reasoningEffort?: ReasoningEffort
   /** Cumulative token usage across the session */
   totalInputTokens?: number
   totalOutputTokens?: number
   totalCachedTokens?: number
+}
+
+/** One step of the agent-maintained live plan (update_plan tool) */
+export interface PlanStep {
+  title: string
+  status: 'pending' | 'active' | 'done'
 }
 
 export interface GitStatus {
@@ -214,11 +229,15 @@ export type AgentEvent =
     }
   /** A steering message was accepted while the agent was running */
   | { type: 'queued'; sessionId: string; text: string }
+  /** The agent updated its live plan (update_plan tool) */
+  | { type: 'plan'; sessionId: string; steps: PlanStep[] }
 
 export interface SessionData {
   meta: SessionMeta
   items: ChatItem[]
   checkpoints: CheckpointInfo[]
+  /** Last plan the agent published via update_plan */
+  plan?: PlanStep[]
 }
 
 export interface UpdateInfo {
@@ -230,6 +249,8 @@ export interface McpServerStatus {
   name: string
   connected: boolean
   toolCount: number
+  /** Names of the tools this server exposes (un-namespaced) */
+  tools?: string[]
   error?: string
 }
 
@@ -292,6 +313,8 @@ export interface HarnessApi {
     delete(id: string): Promise<void>
     rename(id: string, title: string): Promise<void>
     setModel(id: string, model: ModelId): Promise<void>
+    /** Set reasoning depth for this session (null = API default) */
+    setEffort(id: string, effort: ReasoningEffort | null): Promise<void>
     restoreCheckpoint(sessionId: string, itemId: string): Promise<{ restored: number }>
     /** Copy a session up to (and including) itemId into a new session */
     fork(sessionId: string, itemId: string): Promise<SessionMeta | null>
@@ -333,6 +356,8 @@ export interface HarnessApi {
     installGithub(url: string): Promise<SkillImportReport>
     /** Pick a local folder and install the SKILL.md skills inside (null = cancelled) */
     importFolder(): Promise<SkillImportReport | null>
+    /** Show the skill's folder in Finder/Explorer (for sharing/export) */
+    reveal(name: string): Promise<void>
   }
   files: {
     suggest(sessionId: string, query: string): Promise<string[]>

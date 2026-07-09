@@ -7,7 +7,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import hljs from 'highlight.js/lib/common'
-import { ChatItem, FileEntry, FilePreview, SessionMeta, ToolStatus } from '@shared/types'
+import { ChatItem, FileEntry, FilePreview, PlanStep, SessionMeta, ToolStatus } from '@shared/types'
 
 type PanelId = 'preview' | 'files' | 'tasks' | 'term'
 
@@ -242,18 +242,22 @@ function toRow(item: ChatItem): TaskRow | null {
 function TasksPanel(props: { sessionId: string }): JSX.Element {
   const [rows, setRows] = useState<TaskRow[]>([])
   const [running, setRunning] = useState(false)
+  const [plan, setPlan] = useState<PlanStep[]>([])
 
   useEffect(() => {
     setRows([])
+    setPlan([])
     void window.harness.sessions.load(props.sessionId).then((data) => {
       if (!data) return
       setRows(data.items.map(toRow).filter((r): r is TaskRow => r !== null).slice(-50))
+      setPlan(data.plan ?? [])
     })
     void window.harness.agent.isRunning(props.sessionId).then(setRunning)
     return window.harness.agent.onEvent((ev) => {
       if (!('sessionId' in ev) || ev.sessionId !== props.sessionId) return
       if (ev.type === 'turn-start') setRunning(true)
       if (ev.type === 'turn-end') setRunning(false)
+      if (ev.type === 'plan') setPlan(ev.steps)
       if (ev.type === 'item' || ev.type === 'item-update') {
         const row = toRow(ev.item)
         if (!row) return
@@ -276,7 +280,21 @@ function TasksPanel(props: { sessionId: string }): JSX.Element {
         <span className={`tool-status ${running ? 'running' : 'ok'}`} />
         {running ? 'Agent working…' : 'Idle'}
       </div>
-      {rows.length === 0 && <div className="dock-empty">Tool activity for this session shows up here.</div>}
+      {plan.length > 0 && (
+        <div className="plan-list">
+          {plan.map((s, i) => (
+            <div key={i} className={`plan-step ${s.status}`}>
+              <span className="plan-mark">
+                {s.status === 'done' ? '✓' : s.status === 'active' ? '●' : '○'}
+              </span>
+              <span className="plan-title">{s.title}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {rows.length === 0 && plan.length === 0 && (
+        <div className="dock-empty">The agent&apos;s plan and tool activity show up here.</div>
+      )}
       {[...rows].reverse().map((r) => (
         <div key={r.id} className="task-row" title={r.detail}>
           <span className={`tool-status ${r.status}`} />

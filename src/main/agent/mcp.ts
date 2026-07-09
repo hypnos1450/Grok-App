@@ -118,6 +118,8 @@ class McpManager {
       name: c.config.name,
       connected: !!c.client && !c.error,
       toolCount: c.tools.length,
+      // Un-namespaced tool names for the Settings UI
+      tools: c.tools.map((t) => t.name.replace(`mcp__${c.config.name}__`, '')),
       error: c.error
     }))
   }

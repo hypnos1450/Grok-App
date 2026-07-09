@@ -264,6 +264,13 @@ function SkillsSection(): JSX.Element {
               {openSkill?.name === s.name ? 'hide' : 'view'}
             </button>
             <button
+              className="mini-btn"
+              title="Show the skill folder (share it by copying the folder)"
+              onClick={() => void window.harness.skills.reveal(s.name)}
+            >
+              folder
+            </button>
+            <button
               className="mini-btn danger"
               title="Delete this skill"
               onClick={() => void window.harness.skills.remove(s.name).then(refresh)}
@@ -282,7 +289,7 @@ function McpSection(props: {
   onChange: (s: Settings) => void
 }): JSX.Element {
   const [status, setStatus] = useState<McpServerStatus[]>([])
-  const [draft, setDraft] = useState({ name: '', command: '', args: '' })
+  const [draft, setDraft] = useState({ name: '', command: '', args: '', env: '' })
 
   const refresh = useCallback(() => {
     void window.harness.mcp.status().then(setStatus)
@@ -298,14 +305,21 @@ function McpSection(props: {
     const name = draft.name.trim()
     const command = draft.command.trim()
     if (!name || !command) return
+    // Parse "KEY=VALUE" per line into the server's environment.
+    const env: Record<string, string> = {}
+    for (const line of draft.env.split('\n')) {
+      const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line)
+      if (m) env[m[1]] = m[2]
+    }
     const server: McpServerConfig = {
       name,
       command,
       args: draft.args.trim() ? draft.args.trim().split(/\s+/) : [],
+      ...(Object.keys(env).length ? { env } : {}),
       enabled: true
     }
     void save([...props.settings.mcpServers.filter((s) => s.name !== name), server])
-    setDraft({ name: '', command: '', args: '' })
+    setDraft({ name: '', command: '', args: '', env: '' })
   }
 
   return (
@@ -324,6 +338,9 @@ function McpSection(props: {
               <b>{srv.name}</b> <code>{srv.command} {srv.args.join(' ')}</code>
               <div style={{ fontSize: 11, opacity: 0.7 }}>
                 {st?.connected ? `${st.toolCount} tools` : st?.error ? st.error : 'not connected'}
+                {st?.connected && st.tools && st.tools.length > 0 && (
+                  <span> — {st.tools.slice(0, 12).join(', ')}{st.tools.length > 12 ? '…' : ''}</span>
+                )}
               </div>
             </span>
             <span>
@@ -367,6 +384,13 @@ function McpSection(props: {
           placeholder="args (e.g. -y @modelcontextprotocol/server-filesystem /path)"
           value={draft.args}
           onChange={(e) => setDraft({ ...draft, args: e.target.value })}
+        />
+        <textarea
+          className="login-input"
+          placeholder={'env vars, one per line (e.g. GITHUB_TOKEN=ghp_...)'}
+          rows={2}
+          value={draft.env}
+          onChange={(e) => setDraft({ ...draft, env: e.target.value })}
         />
         <button className="btn" onClick={add}>
           Add server

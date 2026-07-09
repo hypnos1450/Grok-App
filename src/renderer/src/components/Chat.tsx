@@ -6,6 +6,7 @@ import {
   MODELS,
   ModelId,
   PermissionRequest,
+  ReasoningEffort,
   SessionMeta,
   Settings,
   Usage
@@ -36,6 +37,7 @@ export default function Chat(props: {
   const [notice, setNotice] = useState<Notice | null>(null)
   const [input, setInput] = useState('')
   const [model, setModel] = useState<ModelId>(session?.model ?? props.settings.defaultModel)
+  const [effort, setEffort] = useState<ReasoningEffort | ''>(session?.reasoningEffort ?? '')
   const [images, setImages] = useState<string[]>([])
   const [files, setFiles] = useState<string[]>([])
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null)
@@ -51,6 +53,7 @@ export default function Chat(props: {
       if (data) {
         setItems(data.items)
         setModel(data.meta.model)
+        setEffort(data.meta.reasoningEffort ?? '')
         setCheckpoints(data.checkpoints)
       }
     })
@@ -540,6 +543,23 @@ export default function Chat(props: {
                 ))}
               </select>
             </span>
+            {MODELS.find((m) => m.id === model)?.effort && (
+              <span className="composer-chip" title="Reasoning depth (Grok 4.5)">
+                <select
+                  value={effort}
+                  onChange={(e) => {
+                    const v = e.target.value as ReasoningEffort | ''
+                    setEffort(v)
+                    void window.harness.sessions.setEffort(session.id, v || null)
+                  }}
+                >
+                  <option value="">reasoning: default</option>
+                  <option value="low">reasoning: low</option>
+                  <option value="medium">reasoning: medium</option>
+                  <option value="high">reasoning: high</option>
+                </select>
+              </span>
+            )}
             <span className="composer-chip" title={`Permission mode: ${props.settings.permissionMode}`}>
               {props.settings.permissionMode}
             </span>

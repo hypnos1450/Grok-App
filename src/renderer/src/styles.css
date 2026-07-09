@@ -1330,6 +1330,36 @@ button {
   outline: none;
 }
 
+/* live plan (update_plan tool) in the Tasks panel */
+.plan-list {
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+}
+.plan-step {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 12px;
+  font-size: 12.5px;
+}
+.plan-mark {
+  width: 12px;
+  color: var(--text-tertiary);
+}
+.plan-step.done .plan-mark {
+  color: var(--ok);
+}
+.plan-step.active .plan-mark {
+  color: var(--accent);
+}
+.plan-step.active .plan-title {
+  font-weight: 600;
+}
+.plan-step.done .plan-title {
+  color: var(--text-tertiary);
+  text-decoration: line-through;
+}
+
 /* served-model badge under assistant messages */
 .assistant-model {
   font-size: 10.5px;

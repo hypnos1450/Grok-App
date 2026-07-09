@@ -114,6 +114,8 @@ export async function streamCompletion(opts: {
   serverTools?: boolean
   maxOutputTokens?: number
   temperature?: number
+  /** Responses API reasoning depth (grok-4.5+); omit for the API default */
+  reasoningEffort?: 'low' | 'medium' | 'high'
   signal?: AbortSignal
   handlers?: StreamHandlers
 }): Promise<CompletionResult> {
@@ -202,6 +204,8 @@ async function streamOnce(opts: {
   serverTools?: boolean
   maxOutputTokens?: number
   temperature?: number
+  /** Responses API reasoning depth (grok-4.5+); omit for the API default */
+  reasoningEffort?: 'low' | 'medium' | 'high'
   signal?: AbortSignal
   handlers?: StreamHandlers
 }): Promise<CompletionResult> {
@@ -224,6 +228,7 @@ async function streamOnce(opts: {
   }
   if (opts.maxOutputTokens) body.max_output_tokens = opts.maxOutputTokens
   if (typeof opts.temperature === 'number') body.temperature = opts.temperature
+  if (opts.reasoningEffort) body.reasoning = { effort: opts.reasoningEffort }
 
   const res = await fetch(url, {
     method: 'POST',

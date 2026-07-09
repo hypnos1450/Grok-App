@@ -5,7 +5,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
-import { ChatItem, ModelId, SCHEMA_VERSION, SessionMeta } from '@shared/types'
+import { ChatItem, ModelId, PlanStep, SCHEMA_VERSION, SessionMeta } from '@shared/types'
 import type { Checkpoint } from './agent/checkpoints'
 import { ApiMessage } from './agent/provider'
 
@@ -29,6 +29,8 @@ export interface SessionRecord {
   digest?: string
   /** File checkpoints, one per user message that caused mutations */
   checkpoints?: Checkpoint[]
+  /** Last plan published by the agent via update_plan */
+  plan?: PlanStep[]
 }
 
 /**
