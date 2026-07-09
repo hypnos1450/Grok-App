@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { SessionMeta } from '@shared/types'
 import { SparkLogo } from './Chat'
-import { GearIcon, PanelLeftIcon, PlusIcon, SearchIcon, XIcon } from './Icons'
+import { GearIcon, HomeIcon, PanelLeftIcon, PlusIcon, SearchIcon, XIcon } from './Icons'
 
 /** Bucket sessions into Today / Yesterday / Previous 7 days / Older by updatedAt. */
 function groupSessions(sessions: SessionMeta[]): { label: string; items: SessionMeta[] }[] {
@@ -31,6 +31,7 @@ export default function Sidebar(props: {
   onSearchOpenChange?: (open: boolean) => void
   onSelect: (id: string) => void
   onNew: () => void
+  onHome: () => void
   onDelete: (id: string) => void
   onOpenSettings: () => void
 }): JSX.Element {
@@ -77,6 +78,9 @@ export default function Sidebar(props: {
         <button className="rail-icon-btn" title="Expand sidebar (⌘\\)" onClick={() => setCollapsed(false)}>
           <SparkLogo size={22} />
         </button>
+        <button className="rail-icon-btn" title="Home" onClick={props.onHome}>
+          <HomeIcon size={19} />
+        </button>
         <button className="rail-icon-btn" title="New session (⌘N)" onClick={props.onNew}>
           <PlusIcon size={19} />
         </button>
@@ -92,9 +96,9 @@ export default function Sidebar(props: {
     <div className="sidebar">
       <div className="sidebar-drag" />
       <div className="sidebar-header">
-        <div className="brand">
+        <button className="brand" title="Home" onClick={props.onHome}>
           <SparkLogo size={18} /> Grok Harness
-        </div>
+        </button>
         <div className="sidebar-header-actions">
           <button
             className="icon-btn"

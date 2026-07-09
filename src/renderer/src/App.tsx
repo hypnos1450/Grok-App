@@ -3,6 +3,7 @@ import { AuthState, ModelId, SessionMeta, Settings, UpdateInfo } from '@shared/t
 import Login from './components/Login'
 import Sidebar from './components/Sidebar'
 import Chat from './components/Chat'
+import Home from './components/Home'
 import SettingsModal from './components/SettingsModal'
 import RightDock from './components/RightDock'
 import { XIcon } from './components/Icons'
@@ -150,6 +151,7 @@ export default function App(): JSX.Element {
         onSearchOpenChange={setSwitcherOpen}
         onSelect={setActiveId}
         onNew={() => void newSession()}
+        onHome={() => setActiveId(null)}
         onDelete={async (sid) => {
           await window.harness.sessions.delete(sid)
           if (activeId === sid) setActiveId(null)
@@ -169,21 +171,33 @@ export default function App(): JSX.Element {
             </button>
           </div>
         )}
-        <Chat
-          key={active?.id ?? 'none'}
-          session={active}
-          settings={settings}
-          registerActions={(a) => (chatActions.current = a)}
-          onForked={async (meta) => {
-            await refreshSessions()
-            setActiveId(meta.id)
-          }}
-          onNeedSession={(cwd) => void newSession(cwd)}
-          onModelChange={async (sid: string, model: ModelId) => {
-            await window.harness.sessions.setModel(sid, model)
-            await refreshSessions()
-          }}
-        />
+        {active ? (
+          <Chat
+            key={active.id}
+            session={active}
+            settings={settings}
+            registerActions={(a) => (chatActions.current = a)}
+            onForked={async (meta) => {
+              await refreshSessions()
+              setActiveId(meta.id)
+            }}
+            onModelChange={async (sid: string, model: ModelId) => {
+              await window.harness.sessions.setModel(sid, model)
+              await refreshSessions()
+            }}
+          />
+        ) : (
+          <Home
+            sessions={sessions}
+            email={auth.email}
+            onNewProject={() =>
+              void window.harness.pickFolder().then((dir) => dir && void newSession(dir))
+            }
+            onQuickSession={() => void newSession()}
+            onOpenProject={(cwd) => void newSession(cwd)}
+            onOpenSession={setActiveId}
+          />
+        )}
       </div>
       <RightDock session={active} />
       {showSettings && (

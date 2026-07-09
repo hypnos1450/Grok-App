@@ -53,12 +53,28 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
   # electron-builder can only attach assets to DRAFT releases, so the matrix
-  # jobs upload to a shared draft; this publishes it once they all finish.
+  # jobs upload to a shared draft; this attaches the CHANGELOG notes for the
+  # tagged version and publishes it once they all finish.
   publish:
     needs: release
     runs-on: ubuntu-latest
     steps:
-      - name: Publish the draft release
-        run: gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
+      - uses: actions/checkout@v4
+
+      - name: Publish the release with CHANGELOG notes
+        run: |
+          ver="${GITHUB_REF_NAME#v}"
+          awk -v v="$ver" '
+            $0 ~ "^## "v" " || $0 == "## "v { hit=1; next }
+            /^## / { hit=0 }
+            hit
+          ' CHANGELOG.md > /tmp/notes.md
+          if [ -s /tmp/notes.md ]; then
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --notes-file /tmp/notes.md --draft=false
+          else
+            echo "No CHANGELOG section for $ver — publishing without notes."
+            gh release edit "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft=false
+          fi
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

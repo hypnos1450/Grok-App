@@ -174,6 +174,71 @@ export function WarnIcon(p: IconProps = {}): JSX.Element {
   )
 }
 
+export function HomeIcon(p: IconProps = {}): JSX.Element {
+  return Base(
+    p,
+    <path d="M3.2 8.6L10 3l6.8 5.6M4.8 7.8v8a1.2 1.2 0 0 0 1.2 1.2h2.6v-4.6h2.8V17H14a1.2 1.2 0 0 0 1.2-1.2v-8" />
+  )
+}
+
+export function FolderIcon(p: IconProps = {}): JSX.Element {
+  return Base(
+    p,
+    <path d="M2.5 6v9.2a1.3 1.3 0 0 0 1.3 1.3h12.4a1.3 1.3 0 0 0 1.3-1.3V7.8a1.3 1.3 0 0 0-1.3-1.3H10L8.2 4.7H3.8a1.3 1.3 0 0 0-1.3 1.3Z" />
+  )
+}
+
+export function FolderPlusIcon(p: IconProps = {}): JSX.Element {
+  return Base(
+    p,
+    <>
+      <path d="M2.5 6v9.2a1.3 1.3 0 0 0 1.3 1.3h12.4a1.3 1.3 0 0 0 1.3-1.3V7.8a1.3 1.3 0 0 0-1.3-1.3H10L8.2 4.7H3.8a1.3 1.3 0 0 0-1.3 1.3Z" />
+      <path d="M10 9.2v4.4M7.8 11.4h4.4" />
+    </>
+  )
+}
+
+export function MessageIcon(p: IconProps = {}): JSX.Element {
+  return Base(
+    p,
+    <path d="M10 3.2c4.1 0 7.4 2.8 7.4 6.3s-3.3 6.3-7.4 6.3c-.9 0-1.7-.1-2.5-.4L3.4 16.8l1-3.2a6 6 0 0 1-1.8-4.1c0-3.5 3.3-6.3 7.4-6.3Z" />
+  )
+}
+
+export function BoltIcon(p: IconProps = {}): JSX.Element {
+  return Base(
+    p,
+    <path d="M11 2.6L4.4 11.4h4.2L9 17.4l6.6-8.8h-4.2L11 2.6Z" />
+  )
+}
+
+export function CalendarIcon(p: IconProps = {}): JSX.Element {
+  return Base(
+    p,
+    <>
+      <rect x="3" y="4.6" width="14" height="12.4" rx="1.6" />
+      <path d="M3 8.4h14M6.8 2.8v3M13.2 2.8v3" />
+    </>
+  )
+}
+
+export function ClockIcon(p: IconProps = {}): JSX.Element {
+  return Base(
+    p,
+    <>
+      <circle cx="10" cy="10" r="7.2" />
+      <path d="M10 5.8V10l2.8 1.9" />
+    </>
+  )
+}
+
+export function ArrowRightIcon(p: IconProps = {}): JSX.Element {
+  return Base(
+    p,
+    <path d="M4 10h11M11.5 5.5L16 10l-4.5 4.5" />
+  )
+}
+
 // ------------------------------------------------------- welcome starters
 
 export function CompassIcon(p: IconProps = {}): JSX.Element {

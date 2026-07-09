@@ -82,8 +82,8 @@ const STARTERS: { label: string; desc: string; icon: JSX.Element; prompt: string
   }
 ]
 
-/** Time-of-day greeting for the welcome screen. */
-function greeting(): string {
+/** Time-of-day greeting for the welcome/home screens. */
+export function greeting(): string {
   const h = new Date().getHours()
   if (h < 5) return 'Up late?'
   if (h < 12) return 'Good morning'
@@ -92,9 +92,8 @@ function greeting(): string {
 }
 
 export default function Chat(props: {
-  session: SessionMeta | null
+  session: SessionMeta
   settings: Settings
-  onNeedSession: (cwd?: string) => void
   onModelChange: (sessionId: string, model: ModelId) => void
   onForked: (meta: SessionMeta) => void
   registerActions: (a: { focusInput?: () => void; exportSession?: () => void }) => void
@@ -422,37 +421,6 @@ export default function Chat(props: {
     [session?.id] // eslint-disable-line react-hooks/exhaustive-deps
   )
 
-  if (!session) {
-    return (
-      <>
-        <div className="chat-header">
-          <span className="chat-header-title">Grok Harness</span>
-        </div>
-        <div className="empty-state">
-          <h2>Start a session</h2>
-          <div>Pick a project folder and put Grok to work.</div>
-          <div className="empty-hints">
-            <button
-              className="empty-hint"
-              onClick={() =>
-                void window.harness.pickFolder().then((dir) => dir && props.onNeedSession(dir))
-              }
-            >
-              <b>Open a project…</b>
-              <br />
-              Choose the folder the agent works in
-            </button>
-            <button className="empty-hint" onClick={() => props.onNeedSession()}>
-              <b>Quick session</b>
-              <br />
-              Start in your home folder
-            </button>
-          </div>
-        </div>
-      </>
-    )
-  }
-
   const modelInfo = MODELS.find((m) => m.id === model)
   const lastAssistantId = [...items].reverse().find((i) => i.kind === 'assistant')?.id
 
@@ -496,10 +464,9 @@ export default function Chat(props: {
             <div className="welcome-halo" aria-hidden />
             <div className="welcome-inner">
               <div className="welcome-logo">
-                <SparkLogo size={52} />
+                <SparkLogo size={34} />
               </div>
-              <h1 className="welcome-title">{greeting()}</h1>
-              <p className="welcome-sub">What should we build today?</p>
+              <h1 className="welcome-title">What should we build?</h1>
               <div className="welcome-chips">
                 <span className="welcome-chip accent">
                   <SparkLogo size={12} />
@@ -521,24 +488,17 @@ export default function Chat(props: {
                   <span className="welcome-chip-text">{shortPath(session.cwd)}</span>
                 </span>
               </div>
-              <div className="welcome-cards">
+              <div className="welcome-pills">
                 {STARTERS.map((s, i) => (
                   <button
                     key={s.label}
-                    className="welcome-card"
-                    style={{ animationDelay: `${0.08 + i * 0.06}s` }}
+                    className="welcome-pill"
+                    title={s.desc}
+                    style={{ animationDelay: `${0.06 + i * 0.05}s` }}
                     onClick={() => startWith(s.prompt)}
                   >
-                    <span className="welcome-card-icon">{s.icon}</span>
-                    <span className="welcome-card-text">
-                      <span className="welcome-card-label">{s.label}</span>
-                      <span className="welcome-card-desc">{s.desc}</span>
-                    </span>
-                    <span className="welcome-card-arrow" aria-hidden>
-                      <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M4 10h11M11.5 5.5L16 10l-4.5 4.5" />
-                      </svg>
-                    </span>
+                    {s.icon}
+                    {s.label}
                   </button>
                 ))}
               </div>
@@ -548,9 +508,6 @@ export default function Chat(props: {
                 </span>
                 <span className="welcome-hint">
                   <kbd>@</kbd> attach files
-                </span>
-                <span className="welcome-hint">
-                  <kbd>⌘K</kbd> search sessions
                 </span>
                 <span className="welcome-hint">drag &amp; drop anywhere</span>
               </div>
@@ -867,12 +824,12 @@ export default function Chat(props: {
   )
 }
 
-function shortPath(p: string): string {
+export function shortPath(p: string): string {
   const parts = p.replace(/\\/g, '/').split('/').filter(Boolean)
   return parts.length > 2 ? `…/${parts.slice(-2).join('/')}` : p
 }
 
-function fmt(n: number): string {
+export function fmt(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`
   return String(n)
