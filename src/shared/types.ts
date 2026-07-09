@@ -52,6 +52,40 @@ export interface McpServerConfig {
   /** Extra environment variables for the server process */
   env?: Record<string, string>
   enabled: boolean
+  /** Where this server was installed from (github URL / npm package), if known */
+  source?: string
+}
+
+/** Env var the MCP installer thinks the server needs */
+export interface McpEnvNeed {
+  key: string
+  description?: string
+  required: boolean
+  placeholder?: string
+}
+
+/** Preview returned before the user confirms an MCP install from GitHub/npm */
+export interface McpInstallPreview {
+  ok: boolean
+  error?: string
+  name?: string
+  command?: string
+  args?: string[]
+  envNeeds?: McpEnvNeed[]
+  notes?: string[]
+  source?: string
+  npmPackage?: string
+}
+
+export interface McpInstallResult {
+  ok: boolean
+  error?: string
+  server?: McpServerConfig
+  missingEnv?: string[]
+  notes?: string[]
+  preview?: McpInstallPreview
+  /** Fresh connection status after install (when install also reconnects) */
+  status?: McpServerStatus[]
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -146,11 +180,19 @@ export type ChatItem =
   | { kind: 'note'; id: string; ts: number; text: string }
 
 export interface Usage {
-  inputTokens: number
-  outputTokens: number
-  cachedTokens: number
+  /**
+   * Tokens currently filling the model context window (last request prompt size).
+   * This is what the % meter is about — NOT lifetime session spend.
+   */
+  contextTokens: number
+  /** Model context window (e.g. 500_000 for Grok Build / 1_000_000 for Grok 4.3) */
+  contextWindow: number
   /** 0..1 fraction of the model context window currently in use */
   contextUsed: number
+  /** Lifetime session totals (sum of every API call — can exceed the window) */
+  sessionInputTokens: number
+  sessionOutputTokens: number
+  sessionCachedTokens: number
 }
 
 export interface PermissionRequest {
@@ -247,6 +289,8 @@ export interface SessionData {
   checkpoints: CheckpointInfo[]
   /** Last plan the agent published via update_plan */
   plan?: PlanStep[]
+  /** Latest context-window usage (restored from lastPromptTokens when available) */
+  usage?: Usage
 }
 
 export interface UpdateInfo {
@@ -279,23 +323,54 @@ export type FilePreview =
   | { kind: 'too-large'; size: number }
   | { kind: 'error'; message: string }
 
-export interface TermSnapshot {
-  /** Accumulated output (tail, capped) */
-  buffer: string
+/** One concurrent terminal job (dev server, test run, interactive shell, …) */
+export interface TermJobInfo {
+  id: string
+  /** Short label shown in the job tab (e.g. "main", "dev") */
+  name: string
   running: boolean
-  /** Last command that was run, if any */
+  /** Last command started in this job */
   command?: string
-  /** Exit code of the last finished command */
   exitCode?: number | null
+  /** Working directory for this job */
+  cwd: string
+}
+
+export interface TermSnapshot {
+  sessionId: string
+  /** Backend mode: real PTY when node-pty loads, else enhanced spawn */
+  mode: 'pty' | 'spawn'
+  jobs: TermJobInfo[]
+  activeJobId: string
+  /** Per-job scrollback (tail, capped) for restore */
+  buffers: Record<string, string>
+  /** Recent commands for ↑/↓ history (newest last) */
+  history: string[]
+  /** Resolved shell binary */
+  shell: string
+  /** Session workspace root */
+  workspaceCwd: string
 }
 
 export interface TermData {
   sessionId: string
+  jobId: string
   /** New output chunk (may be empty on the final event) */
   chunk: string
   /** Present when the process finished */
   done?: boolean
   exitCode?: number | null
+  /** Updated job list when membership/status changes */
+  jobs?: TermJobInfo[]
+}
+
+export interface TermRunOpts {
+  /** Existing job to reuse; omit to use/create the active job */
+  jobId?: string
+  /** Label for a new background job (e.g. "dev") */
+  name?: string
+  /** Force a fresh job slot even if one is free */
+  newJob?: boolean
 }
 
 export interface Attachments {
@@ -386,10 +461,47 @@ export interface HarnessApi {
     readFile(sessionId: string, rel: string): Promise<FilePreview>
   }
   term: {
-    /** Run a shell command in the session cwd (one at a time per session) */
-    run(sessionId: string, command: string): Promise<{ ok: boolean; error?: string }>
-    kill(sessionId: string): Promise<void>
+    /**
+     * Ensure a live shell for the session (PTY interactive shell, or spawn
+     * job slots). Returns the current snapshot.
+     */
+    open(sessionId: string): Promise<TermSnapshot>
+    /** Run a command. In PTY mode this writes to the interactive shell. */
+    run(
+      sessionId: string,
+      command: string,
+      opts?: TermRunOpts
+    ): Promise<{ ok: boolean; error?: string; jobId?: string }>
+    /** Open a new empty job tab (no command). */
+    createJob(
+      sessionId: string,
+      name?: string
+    ): Promise<{ ok: boolean; error?: string; jobId?: string; snapshot?: TermSnapshot }>
+    /** Write raw bytes to a job's stdin / PTY (keystrokes, Ctrl+C, …) */
+    write(sessionId: string, data: string, jobId?: string): Promise<void>
+    /** Resize the PTY to match the xterm.js viewport */
+    resize(sessionId: string, cols: number, rows: number, jobId?: string): Promise<void>
+    /** Stop a job (or the active one). Process-tree kill on Windows. */
+    kill(sessionId: string, jobId?: string): Promise<void>
+    /** Close a job tab (stops it if running). Keeps at least one tab. */
+    closeJob(sessionId: string, jobId: string): Promise<TermSnapshot | null>
+    /** Switch which job is active in the UI */
+    setActiveJob(sessionId: string, jobId: string): Promise<void>
+    /** Clear scrollback for a job */
+    clear(sessionId: string, jobId?: string): Promise<void>
+    /** Restart the last command in a job */
+    restart(sessionId: string, jobId?: string): Promise<{ ok: boolean; error?: string }>
     snapshot(sessionId: string): Promise<TermSnapshot>
+    /** Open the system terminal at the session cwd */
+    openExternal(sessionId: string): Promise<void>
+    /** Recent command history for ↑/↓ */
+    history(sessionId: string): Promise<string[]>
+    /** Pin a command into a named background terminal job (agent → terminal) */
+    pin(
+      sessionId: string,
+      command: string,
+      name?: string
+    ): Promise<{ ok: boolean; error?: string; jobId?: string }>
     onData(cb: (data: TermData) => void): () => void
   }
   settings: {
@@ -399,6 +511,16 @@ export interface HarnessApi {
   mcp: {
     status(): Promise<McpServerStatus[]>
     reconnect(): Promise<McpServerStatus[]>
+    /** Inspect a GitHub URL / npm package and return how we'd install it */
+    previewInstall(input: string): Promise<McpInstallPreview>
+    /**
+     * Install from a preview (or re-run detection) with user-supplied env.
+     * Adds the server to settings and reconnects MCP.
+     */
+    install(
+      input: string,
+      opts?: { name?: string; env?: Record<string, string>; extraArgs?: string[] }
+    ): Promise<McpInstallResult>
   }
   update: {
     check(): Promise<{ ok: boolean; version?: string; error?: string }>

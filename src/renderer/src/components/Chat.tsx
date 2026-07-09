@@ -96,7 +96,11 @@ export default function Chat(props: {
   settings: Settings
   onModelChange: (sessionId: string, model: ModelId) => void
   onForked: (meta: SessionMeta) => void
-  registerActions: (a: { focusInput?: () => void; exportSession?: () => void }) => void
+  registerActions: (a: {
+    focusInput?: () => void
+    exportSession?: () => void
+    insertText?: (text: string) => void
+  }) => void
 }): JSX.Element {
   const { session } = props
   const [items, setItems] = useState<ChatItem[]>([])
@@ -128,6 +132,7 @@ export default function Chat(props: {
         setModel(data.meta.model)
         setEffort(data.meta.reasoningEffort ?? '')
         setCheckpoints(data.checkpoints)
+        setUsage(data.usage ?? null)
       }
     })
     void window.harness.agent.isRunning(session.id).then(setRunning)
@@ -142,6 +147,20 @@ export default function Chat(props: {
       focusInput: () => textareaRef.current?.focus(),
       exportSession: () => {
         if (session) void window.harness.sessions.export(session.id)
+      },
+      insertText: (text: string) => {
+        setInput((prev) => {
+          if (!prev) return text
+          const needsNl = !prev.endsWith('\n') && !prev.endsWith('\n\n')
+          return prev + (needsNl ? '\n' : '') + text
+        })
+        requestAnimationFrame(() => {
+          const el = textareaRef.current
+          if (!el) return
+          el.focus()
+          el.style.height = 'auto'
+          el.style.height = Math.min(el.scrollHeight, 200) + 'px'
+        })
       }
     })
   }, [session?.id]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -441,9 +460,13 @@ export default function Chat(props: {
           {usage && (
             <span
               className="context-pill"
-              title={`Context ${Math.round(usage.contextUsed * 100)}% · ${fmt(usage.inputTokens)} in / ${fmt(usage.outputTokens)} out · ${fmt(usage.cachedTokens)} cached`}
+              title={[
+                `Context window: ${fmt(usage.contextTokens)} / ${fmt(usage.contextWindow)} (${Math.round(usage.contextUsed * 100)}%)`,
+                `Session totals (all API calls): ${fmt(usage.sessionInputTokens)} in · ${fmt(usage.sessionOutputTokens)} out · ${fmt(usage.sessionCachedTokens)} cached`
+              ].join('\n')}
             >
-              {Math.round(usage.contextUsed * 100)}% · {fmt(usage.inputTokens + usage.outputTokens)} tok
+              {Math.round(usage.contextUsed * 100)}% · {fmt(usage.contextTokens)}
+              <span className="context-pill-dim"> / {fmt(usage.contextWindow)}</span>
             </span>
           )}
           <span className="context-pill" title={session.cwd}>
@@ -561,7 +584,14 @@ export default function Chat(props: {
                     </div>
                   </div>
                 ) : (
-                  <ItemView item={item} />
+                  <ItemView
+                  item={item}
+                  sessionId={session.id}
+                  onPinnedToTerm={() => {
+                    // Ask App to open the terminal dock via menu action channel.
+                    window.dispatchEvent(new CustomEvent('harness:open-terminal'))
+                  }}
+                />
                 )}
                 {item.kind === 'assistant' && item.id === lastAssistantId && !running && (
                   <button className="retry-link" onClick={retry}>

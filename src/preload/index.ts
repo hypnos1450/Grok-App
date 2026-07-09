@@ -78,9 +78,21 @@ const api: HarnessApi = {
     readFile: (sessionId, rel) => ipcRenderer.invoke('panels:readFile', sessionId, rel)
   },
   term: {
-    run: (sessionId, command) => ipcRenderer.invoke('term:run', sessionId, command),
-    kill: (sessionId) => ipcRenderer.invoke('term:kill', sessionId),
+    open: (sessionId) => ipcRenderer.invoke('term:open', sessionId),
+    run: (sessionId, command, opts) => ipcRenderer.invoke('term:run', sessionId, command, opts),
+    createJob: (sessionId, name) => ipcRenderer.invoke('term:createJob', sessionId, name),
+    write: (sessionId, data, jobId) => ipcRenderer.invoke('term:write', sessionId, data, jobId),
+    resize: (sessionId, cols, rows, jobId) =>
+      ipcRenderer.invoke('term:resize', sessionId, cols, rows, jobId),
+    kill: (sessionId, jobId) => ipcRenderer.invoke('term:kill', sessionId, jobId),
+    closeJob: (sessionId, jobId) => ipcRenderer.invoke('term:closeJob', sessionId, jobId),
+    setActiveJob: (sessionId, jobId) => ipcRenderer.invoke('term:setActiveJob', sessionId, jobId),
+    clear: (sessionId, jobId) => ipcRenderer.invoke('term:clear', sessionId, jobId),
+    restart: (sessionId, jobId) => ipcRenderer.invoke('term:restart', sessionId, jobId),
     snapshot: (sessionId) => ipcRenderer.invoke('term:snapshot', sessionId),
+    openExternal: (sessionId) => ipcRenderer.invoke('term:openExternal', sessionId),
+    history: (sessionId) => ipcRenderer.invoke('term:history', sessionId),
+    pin: (sessionId, command, name) => ipcRenderer.invoke('term:pin', sessionId, command, name),
     onData: (cb: (data: TermData) => void) => {
       const l = (_e: Electron.IpcRendererEvent, data: TermData): void => cb(data)
       ipcRenderer.on('term:data', l)
@@ -93,7 +105,9 @@ const api: HarnessApi = {
   },
   mcp: {
     status: () => ipcRenderer.invoke('mcp:status'),
-    reconnect: () => ipcRenderer.invoke('mcp:reconnect')
+    reconnect: () => ipcRenderer.invoke('mcp:reconnect'),
+    previewInstall: (input) => ipcRenderer.invoke('mcp:previewInstall', input),
+    install: (input, opts) => ipcRenderer.invoke('mcp:install', input, opts)
   },
   update: {
     check: () => ipcRenderer.invoke('update:check'),

@@ -22,14 +22,22 @@ function CodeBlock({ className, children }: { className?: string; children?: unk
   return <code className={`hljs ${className ?? ''}`} dangerouslySetInnerHTML={{ __html: html }} />
 }
 
-function ItemView({ item }: { item: ChatItem }): JSX.Element | null {
+function ItemView({
+  item,
+  sessionId,
+  onPinnedToTerm
+}: {
+  item: ChatItem
+  sessionId?: string
+  onPinnedToTerm?: () => void
+}): JSX.Element | null {
   switch (item.kind) {
     case 'user':
       return <UserView item={item} />
     case 'assistant':
       return <AssistantView item={item} />
     case 'tool':
-      return <ToolCard item={item} />
+      return <ToolCard item={item} sessionId={sessionId} onPinnedToTerm={onPinnedToTerm} />
     case 'compaction':
       return <div className="msg-compaction">Context compacted to stay within the model window</div>
     case 'error':
@@ -187,10 +195,46 @@ function toolIcon(name: string): string {
   return '•'
 }
 
-function ToolCard({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.Element {
+function ToolCard({
+  item,
+  sessionId,
+  onPinnedToTerm
+}: {
+  item: Extract<ChatItem, { kind: 'tool' }>
+  sessionId?: string
+  onPinnedToTerm?: () => void
+}): JSX.Element {
   const [open, setOpen] = useState(false)
+  const [pinState, setPinState] = useState<'idle' | 'pinning' | 'done' | 'err'>('idle')
   const summary = summarize(item)
   const displayName = item.name.startsWith('mcp__') ? item.name.split('__').slice(1).join(':') : item.name
+  const bashCmd = item.name === 'bash' ? String(item.input?.command ?? '').trim() : ''
+  const canPin = !!sessionId && !!bashCmd
+
+  const pinToTerm = async (e: React.MouseEvent): Promise<void> => {
+    e.stopPropagation()
+    if (!sessionId || !bashCmd || pinState === 'pinning') return
+    setPinState('pinning')
+    try {
+      const name = /\b(dev|start|serve)\b/i.test(bashCmd)
+        ? 'dev'
+        : /\btest\b/i.test(bashCmd)
+          ? 'test'
+          : /\bbuild\b/i.test(bashCmd)
+            ? 'build'
+            : 'agent'
+      const res = await window.harness.term.pin(sessionId, bashCmd, name)
+      if (res.ok) {
+        setPinState('done')
+        onPinnedToTerm?.()
+      } else {
+        setPinState('err')
+      }
+    } catch {
+      setPinState('err')
+    }
+  }
+
   return (
     <div className={`tool-card ${item.status}`}>
       <button className="tool-card-header" onClick={() => setOpen((v) => !v)}>
@@ -201,6 +245,21 @@ function ToolCard({ item }: { item: Extract<ChatItem, { kind: 'tool' }> }): JSX.
         <span className="tool-summary">{summary}</span>
         {typeof item.durationMs === 'number' && (
           <span className="tool-duration">{formatDuration(item.durationMs)}</span>
+        )}
+        {canPin && (
+          <span
+            className={`tool-pin${pinState === 'done' ? ' done' : ''}`}
+            title={
+              pinState === 'done'
+                ? 'Pinned to Terminal'
+                : pinState === 'err'
+                  ? 'Pin failed — try again'
+                  : 'Run in Terminal panel'
+            }
+            onClick={(e) => void pinToTerm(e)}
+          >
+            {pinState === 'pinning' ? '…' : pinState === 'done' ? '✓ term' : '↗ term'}
+          </span>
         )}
         <span className={`tool-chevron${open ? ' open' : ''}`}>›</span>
       </button>

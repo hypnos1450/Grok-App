@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react'
 import {
+  McpInstallPreview,
   McpServerConfig,
   McpServerStatus,
   MODELS,
@@ -291,6 +292,14 @@ function McpSection(props: {
 }): JSX.Element {
   const [status, setStatus] = useState<McpServerStatus[]>([])
   const [draft, setDraft] = useState({ name: '', command: '', args: '', env: '' })
+  const [url, setUrl] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [preview, setPreview] = useState<McpInstallPreview | null>(null)
+  const [envValues, setEnvValues] = useState<Record<string, string>>({})
+  const [installName, setInstallName] = useState('')
+  const [installMsg, setInstallMsg] = useState<string | null>(null)
+  const [editEnv, setEditEnv] = useState<string | null>(null)
+  const [editEnvText, setEditEnvText] = useState('')
 
   const refresh = useCallback(() => {
     void window.harness.mcp.status().then(setStatus)
@@ -299,14 +308,14 @@ function McpSection(props: {
 
   const save = async (servers: McpServerConfig[]): Promise<void> => {
     props.onChange(await window.harness.settings.set({ mcpServers: servers }))
-    setTimeout(refresh, 500)
+    // settings:set already reconnects MCP when the list changes
+    setTimeout(refresh, 800)
   }
 
-  const add = (): void => {
+  const addManual = (): void => {
     const name = draft.name.trim()
     const command = draft.command.trim()
     if (!name || !command) return
-    // Parse "KEY=VALUE" per line into the server's environment.
     const env: Record<string, string> = {}
     for (const line of draft.env.split('\n')) {
       const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line)
@@ -323,28 +332,233 @@ function McpSection(props: {
     setDraft({ name: '', command: '', args: '', env: '' })
   }
 
+  const inspect = async (): Promise<void> => {
+    const input = url.trim()
+    if (!input) return
+    setBusy(true)
+    setInstallMsg(null)
+    setPreview(null)
+    try {
+      const p = await window.harness.mcp.previewInstall(input)
+      setPreview(p)
+      if (p.ok) {
+        setInstallName(p.name ?? '')
+        const init: Record<string, string> = {}
+        for (const e of p.envNeeds ?? []) init[e.key] = ''
+        setEnvValues(init)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const confirmInstall = async (): Promise<void> => {
+    if (!preview?.ok) return
+    setBusy(true)
+    setInstallMsg(null)
+    try {
+      const result = await window.harness.mcp.install(url.trim(), {
+        name: installName.trim() || preview.name,
+        env: envValues
+      })
+      if (!result.ok) {
+        setInstallMsg(result.error ?? 'Install failed')
+        return
+      }
+      // Refresh settings from main so the list updates
+      props.onChange(await window.harness.settings.get())
+      if (result.status) setStatus(result.status)
+      else refresh()
+      const missing = result.missingEnv?.length
+        ? ` Installed — still need: ${result.missingEnv.join(', ')}`
+        : ' Installed and connecting…'
+      setInstallMsg((result.notes ?? []).join(' ') + missing)
+      setPreview(null)
+      setUrl('')
+      setEnvValues({})
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const saveEnvFor = async (name: string): Promise<void> => {
+    const env: Record<string, string> = {}
+    for (const line of editEnvText.split('\n')) {
+      const m = /^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/.exec(line)
+      if (m) env[m[1]] = m[2]
+    }
+    await save(
+      props.settings.mcpServers.map((s) =>
+        s.name === name ? { ...s, env: Object.keys(env).length ? env : undefined } : s
+      )
+    )
+    setEditEnv(null)
+    setEditEnvText('')
+  }
+
   return (
     <div className="memory-section">
-      {props.settings.mcpServers.length === 0 && (
-        <div className="memory-empty">
-          No MCP servers. Add one to expose external tools (filesystem, GitHub, databases…) to Grok.
+      <div className="skill-install">
+        <div className="mcp-add">
+          <input
+            className="login-input"
+            placeholder="GitHub URL, owner/repo, or npm package (e.g. @modelcontextprotocol/server-github)"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void inspect()
+            }}
+            disabled={busy}
+          />
+          <button className="btn" onClick={() => void inspect()} disabled={busy || !url.trim()}>
+            {busy && !preview ? 'Inspecting…' : 'Install from link'}
+          </button>
+        </div>
+        <div className="setting-hint" style={{ marginTop: 6 }}>
+          Same idea as Skills: paste a repo or package and we detect the start command and any API keys.
+        </div>
+      </div>
+
+      {preview && !preview.ok && (
+        <div className="skill-install-report" style={{ color: 'var(--err)' }}>
+          {preview.error}
         </div>
       )}
+
+      {preview?.ok && (
+        <div className="mcp-install-preview">
+          <div className="memory-header">
+            <span>
+              Ready to install <b>{preview.source ?? preview.name}</b>
+            </span>
+            <button className="mini-btn" onClick={() => setPreview(null)} disabled={busy}>
+              cancel
+            </button>
+          </div>
+          <div className="mcp-install-row">
+            <label>Name</label>
+            <input
+              className="login-input"
+              value={installName}
+              onChange={(e) => setInstallName(e.target.value)}
+            />
+          </div>
+          <div className="mcp-install-cmd">
+            <code>
+              {preview.command} {(preview.args ?? []).join(' ')}
+            </code>
+          </div>
+          {(preview.notes ?? []).length > 0 && (
+            <ul className="mcp-install-notes">
+              {preview.notes!.map((n) => (
+                <li key={n}>{n}</li>
+              ))}
+            </ul>
+          )}
+          {(preview.envNeeds ?? []).length > 0 && (
+            <div className="mcp-install-env">
+              <div className="setting-label">Secrets & config</div>
+              <div className="setting-hint">Required fields are marked. You can leave optional ones blank.</div>
+              {preview.envNeeds!.map((e) => (
+                <div key={e.key} className="mcp-install-row">
+                  <label title={e.description}>
+                    {e.key}
+                    {e.required ? ' *' : ''}
+                  </label>
+                  <input
+                    className="login-input"
+                    type="password"
+                    autoComplete="off"
+                    placeholder={e.placeholder ?? e.description ?? e.key}
+                    value={envValues[e.key] ?? ''}
+                    onChange={(ev) => setEnvValues((v) => ({ ...v, [e.key]: ev.target.value }))}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+          <button className="btn primary" onClick={() => void confirmInstall()} disabled={busy}>
+            {busy ? 'Installing…' : 'Add MCP server'}
+          </button>
+        </div>
+      )}
+
+      {installMsg && <div className="skill-install-report">{installMsg}</div>}
+
+      {props.settings.mcpServers.length === 0 && !preview && (
+        <div className="memory-empty">
+          No MCP servers yet. Install from a GitHub link above, or add one manually below.
+        </div>
+      )}
+
       {props.settings.mcpServers.map((srv) => {
         const st = status.find((s) => s.name === srv.name)
+        const envKeys = Object.keys(srv.env ?? {})
         return (
           <div key={srv.name} className="memory-entry">
             <span className="memory-entry-text">
-              <span className={`tool-status ${st?.connected ? 'ok' : 'error'}`} />{' '}
-              <b>{srv.name}</b> <code>{srv.command} {srv.args.join(' ')}</code>
+              <span className={`tool-status ${st?.connected ? 'ok' : srv.enabled ? 'error' : ''}`} />{' '}
+              <b>{srv.name}</b>{' '}
+              <code>
+                {srv.command} {srv.args.join(' ')}
+              </code>
+              {srv.source && (
+                <span style={{ fontSize: 11, opacity: 0.55 }}> · {srv.source}</span>
+              )}
               <div style={{ fontSize: 11, opacity: 0.7 }}>
-                {st?.connected ? `${st.toolCount} tools` : st?.error ? st.error : 'not connected'}
+                {!srv.enabled
+                  ? 'disabled'
+                  : st?.connected
+                    ? `${st.toolCount} tools`
+                    : st?.error
+                      ? st.error
+                      : 'connecting…'}
                 {st?.connected && st.tools && st.tools.length > 0 && (
-                  <span> — {st.tools.slice(0, 12).join(', ')}{st.tools.length > 12 ? '…' : ''}</span>
+                  <span>
+                    {' '}
+                    — {st.tools.slice(0, 12).join(', ')}
+                    {st.tools.length > 12 ? '…' : ''}
+                  </span>
+                )}
+                {envKeys.length > 0 && (
+                  <span> · env: {envKeys.join(', ')}</span>
                 )}
               </div>
+              {editEnv === srv.name && (
+                <div className="mcp-edit-env">
+                  <textarea
+                    className="login-input"
+                    rows={3}
+                    placeholder={'KEY=value\nOTHER=…'}
+                    value={editEnvText}
+                    onChange={(e) => setEditEnvText(e.target.value)}
+                  />
+                  <span>
+                    <button className="mini-btn" onClick={() => void saveEnvFor(srv.name)}>
+                      save env
+                    </button>
+                    <button className="mini-btn" onClick={() => setEditEnv(null)}>
+                      cancel
+                    </button>
+                  </span>
+                </div>
+              )}
             </span>
             <span>
+              <button
+                className="mini-btn"
+                title="Edit environment variables"
+                onClick={() => {
+                  setEditEnv(srv.name)
+                  setEditEnvText(
+                    Object.entries(srv.env ?? {})
+                      .map(([k, v]) => `${k}=${v}`)
+                      .join('\n')
+                  )
+                }}
+              >
+                env
+              </button>
               <button
                 className="mini-btn"
                 onClick={() =>
@@ -368,36 +582,40 @@ function McpSection(props: {
           </div>
         )
       })}
-      <div className="mcp-add">
-        <input
-          className="login-input"
-          placeholder="name"
-          value={draft.name}
-          onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-        />
-        <input
-          className="login-input"
-          placeholder="command (e.g. npx)"
-          value={draft.command}
-          onChange={(e) => setDraft({ ...draft, command: e.target.value })}
-        />
-        <input
-          className="login-input"
-          placeholder="args (e.g. -y @modelcontextprotocol/server-filesystem /path)"
-          value={draft.args}
-          onChange={(e) => setDraft({ ...draft, args: e.target.value })}
-        />
-        <textarea
-          className="login-input"
-          placeholder={'env vars, one per line (e.g. GITHUB_TOKEN=ghp_...)'}
-          rows={2}
-          value={draft.env}
-          onChange={(e) => setDraft({ ...draft, env: e.target.value })}
-        />
-        <button className="btn" onClick={add}>
-          Add server
-        </button>
-      </div>
+
+      <details className="mcp-manual">
+        <summary>Add manually</summary>
+        <div className="mcp-add">
+          <input
+            className="login-input"
+            placeholder="name"
+            value={draft.name}
+            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+          />
+          <input
+            className="login-input"
+            placeholder="command (e.g. npx)"
+            value={draft.command}
+            onChange={(e) => setDraft({ ...draft, command: e.target.value })}
+          />
+          <input
+            className="login-input"
+            placeholder="args (e.g. -y @modelcontextprotocol/server-filesystem /path)"
+            value={draft.args}
+            onChange={(e) => setDraft({ ...draft, args: e.target.value })}
+          />
+          <textarea
+            className="login-input"
+            placeholder={'env vars, one per line (e.g. GITHUB_TOKEN=ghp_...)'}
+            rows={2}
+            value={draft.env}
+            onChange={(e) => setDraft({ ...draft, env: e.target.value })}
+          />
+          <button className="btn" onClick={addManual}>
+            Add server
+          </button>
+        </div>
+      </details>
     </div>
   )
 }

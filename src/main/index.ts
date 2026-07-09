@@ -96,7 +96,33 @@ if (!app.requestSingleInstanceLock()) {
 
     sessionStore.init()
     registerIpc(() => mainWindow)
-    termManager.init(() => mainWindow)
+    termManager.init(() => mainWindow, (sessionId, jobName, command, exitCode) => {
+      try {
+        const { Notification } = require('electron') as typeof import('electron')
+        if (!Notification.isSupported()) return
+        if (mainWindow?.isFocused()) return
+        const title =
+          exitCode === 0 || exitCode === null
+            ? `Terminal · ${jobName} finished`
+            : `Terminal · ${jobName} exited ${exitCode}`
+        const n = new Notification({
+          title,
+          body: (command || '').slice(0, 140),
+          silent: false
+        })
+        n.on('click', () => {
+          if (!mainWindow) return
+          if (mainWindow.isMinimized()) mainWindow.restore()
+          mainWindow.show()
+          mainWindow.focus()
+          mainWindow.webContents.send('menu:action', `focus-session:${sessionId}`)
+          mainWindow.webContents.send('menu:action', 'open-terminal')
+        })
+        n.show()
+      } catch {
+        // ignore
+      }
+    })
     buildMenu(() => mainWindow)
     createWindow()
     initUpdater(() => mainWindow)

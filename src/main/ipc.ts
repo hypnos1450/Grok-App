@@ -14,6 +14,7 @@ import {
 } from '@shared/types'
 import { authManager } from './auth/store'
 import { probeAccess } from './agent/provider'
+import { profileFor } from './agent/profiles'
 import { AgentRun } from './agent/loop'
 import { restoreCheckpoint } from './agent/checkpoints'
 import { MemoryTarget, memoryStore } from './agent/memory'
@@ -22,6 +23,7 @@ import { importSkillFolder, installFromGitHub } from './agent/skill-install'
 import { listDir, readFilePreview, termManager } from './panels'
 import { ensureCommandsDir, listCommands, resolveCommand } from './commands'
 import { mcpManager } from './agent/mcp'
+import { installMcpFromInput, previewMcpInstall } from './agent/mcp-install'
 import { gitStatus } from './agent/git'
 import { logsDirectory } from './logger'
 import { suggestFiles } from './agent/tools'
@@ -143,7 +145,22 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       ts: c.ts,
       fileCount: c.files.length
     }))
-    return { meta: rec.meta, items: rec.items, checkpoints, plan: rec.plan }
+    // Rebuild the context meter from the last prompt size + model window so
+    // reopening a session doesn't show a blank pill (or stale lifetime totals).
+    const profile = profileFor(rec.meta.model)
+    const contextTokens = rec.lastPromptTokens ?? 0
+    const usage =
+      contextTokens > 0 || (rec.meta.totalInputTokens ?? 0) > 0
+        ? {
+            contextTokens,
+            contextWindow: profile.contextWindow,
+            contextUsed: Math.min(1, contextTokens / profile.contextWindow),
+            sessionInputTokens: rec.meta.totalInputTokens ?? 0,
+            sessionOutputTokens: rec.meta.totalOutputTokens ?? 0,
+            sessionCachedTokens: rec.meta.totalCachedTokens ?? 0
+          }
+        : undefined
+    return { meta: rec.meta, items: rec.items, checkpoints, plan: rec.plan, usage }
   })
   handle('sessions:restoreCheckpoint', async (_e, sessionId: string, itemId: string) => {
     if (runs.has(sessionId)) throw new Error('Stop the agent before restoring a checkpoint')
@@ -358,13 +375,81 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     if (!rec) return { kind: 'error', message: 'Session not found.' }
     return readFilePreview(rec.meta.cwd, String(rel ?? ''))
   })
-  handle('term:run', async (_e, sessionId: string, command: string) => {
+  handle('term:open', async (_e, sessionId: string) => {
+    const rec = await sessionStore.load(sessionId)
+    if (!rec) {
+      return {
+        sessionId,
+        mode: 'spawn' as const,
+        jobs: [],
+        activeJobId: '',
+        buffers: {},
+        history: [],
+        shell: '',
+        workspaceCwd: ''
+      }
+    }
+    return termManager.open(sessionId, rec.meta.cwd)
+  })
+  handle(
+    'term:run',
+    async (
+      _e,
+      sessionId: string,
+      command: string,
+      opts?: { jobId?: string; name?: string; newJob?: boolean }
+    ) => {
+      const rec = await sessionStore.load(sessionId)
+      if (!rec) return { ok: false, error: 'Session not found.' }
+      return termManager.run(sessionId, rec.meta.cwd, String(command ?? ''), opts)
+    }
+  )
+  handle('term:createJob', async (_e, sessionId: string, name?: string) => {
     const rec = await sessionStore.load(sessionId)
     if (!rec) return { ok: false, error: 'Session not found.' }
-    return termManager.run(sessionId, rec.meta.cwd, String(command ?? ''))
+    return termManager.createJob(sessionId, rec.meta.cwd, name)
   })
-  handle('term:kill', (_e, sessionId: string) => termManager.kill(sessionId))
-  handle('term:snapshot', (_e, sessionId: string) => termManager.snapshot(sessionId))
+  handle('term:write', (_e, sessionId: string, data: string, jobId?: string) => {
+    termManager.write(sessionId, String(data ?? ''), jobId)
+  })
+  handle(
+    'term:resize',
+    (_e, sessionId: string, cols: number, rows: number, jobId?: string) => {
+      termManager.resize(sessionId, Number(cols) || 80, Number(rows) || 24, jobId)
+    }
+  )
+  handle('term:kill', (_e, sessionId: string, jobId?: string) => termManager.kill(sessionId, jobId))
+  handle('term:closeJob', async (_e, sessionId: string, jobId: string) => {
+    const rec = await sessionStore.load(sessionId)
+    if (!rec) return null
+    return termManager.closeJob(sessionId, jobId) ?? termManager.snapshot(sessionId, rec.meta.cwd)
+  })
+  handle('term:setActiveJob', (_e, sessionId: string, jobId: string) => {
+    termManager.setActiveJob(sessionId, jobId)
+  })
+  handle('term:clear', (_e, sessionId: string, jobId?: string) => termManager.clear(sessionId, jobId))
+  handle('term:restart', async (_e, sessionId: string, jobId?: string) => {
+    const rec = await sessionStore.load(sessionId)
+    if (!rec) return { ok: false, error: 'Session not found.' }
+    return termManager.restart(sessionId, rec.meta.cwd, jobId)
+  })
+  handle('term:snapshot', async (_e, sessionId: string) => {
+    const rec = await sessionStore.load(sessionId)
+    return termManager.snapshot(sessionId, rec?.meta.cwd)
+  })
+  handle('term:history', (_e, sessionId: string) => termManager.history(sessionId))
+  handle('term:openExternal', async (_e, sessionId: string) => {
+    const rec = await sessionStore.load(sessionId)
+    if (rec) termManager.openExternal(rec.meta.cwd)
+  })
+  handle(
+    'term:pin',
+    async (_e, sessionId: string, command: string, name?: string) => {
+      const rec = await sessionStore.load(sessionId)
+      if (!rec) return { ok: false, error: 'Session not found.' }
+      return termManager.pinAgentCommand(sessionId, rec.meta.cwd, String(command ?? ''), name)
+    }
+  )
 
   // ---- mcp
   handle('mcp:status', () => mcpManager.status())
@@ -372,6 +457,27 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     await mcpManager.sync(settings.mcpServers)
     return mcpManager.status()
   })
+  handle('mcp:previewInstall', (_e, input: string) => previewMcpInstall(String(input ?? '')))
+  handle(
+    'mcp:install',
+    async (
+      _e,
+      input: string,
+      opts?: { name?: string; env?: Record<string, string>; extraArgs?: string[] }
+    ) => {
+      const result = await installMcpFromInput(String(input ?? ''), opts ?? {})
+      if (!result.ok || !result.server) return result
+      // Merge into settings (replace same name)
+      const next = [
+        ...settings.mcpServers.filter((s) => s.name !== result.server!.name),
+        result.server
+      ]
+      settings = { ...settings, mcpServers: next }
+      saveSettings(settings)
+      await mcpManager.sync(settings.mcpServers).catch(() => undefined)
+      return { ...result, status: mcpManager.status() }
+    }
+  )
 
   // ---- settings & misc
   handle('settings:get', () => settings)

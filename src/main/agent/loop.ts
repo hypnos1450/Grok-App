@@ -188,8 +188,10 @@ export class AgentRun {
         })
 
         if (result.usage) {
-          const used = result.usage.promptTokens + result.usage.completionTokens
-          this.session.lastPromptTokens = used
+          // Context fill = last prompt size (what actually occupies the window).
+          // Session totals accumulate every call and routinely exceed the window.
+          const contextTokens = result.usage.promptTokens
+          this.session.lastPromptTokens = contextTokens
           this.session.meta.totalInputTokens =
             (this.session.meta.totalInputTokens ?? 0) + result.usage.promptTokens
           this.session.meta.totalOutputTokens =
@@ -200,10 +202,12 @@ export class AgentRun {
             type: 'usage',
             sessionId,
             usage: {
-              inputTokens: this.session.meta.totalInputTokens,
-              outputTokens: this.session.meta.totalOutputTokens,
-              cachedTokens: this.session.meta.totalCachedTokens,
-              contextUsed: Math.min(1, used / profile.contextWindow)
+              contextTokens,
+              contextWindow: profile.contextWindow,
+              contextUsed: Math.min(1, contextTokens / profile.contextWindow),
+              sessionInputTokens: this.session.meta.totalInputTokens ?? 0,
+              sessionOutputTokens: this.session.meta.totalOutputTokens ?? 0,
+              sessionCachedTokens: this.session.meta.totalCachedTokens ?? 0
             }
           })
         }

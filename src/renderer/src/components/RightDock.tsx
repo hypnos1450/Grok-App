@@ -9,6 +9,7 @@ import remarkGfm from 'remark-gfm'
 import hljs from 'highlight.js/lib/common'
 import { ChatItem, FileEntry, FilePreview, PlanStep, SessionMeta, ToolStatus } from '@shared/types'
 import { ExpandIcon, RefreshIcon, ShrinkIcon, XIcon } from './Icons'
+import TerminalPanel from './TerminalPanel'
 
 type PanelId = 'preview' | 'files' | 'tasks' | 'term'
 
@@ -327,88 +328,18 @@ function TasksPanel(props: { sessionId: string }): JSX.Element {
   )
 }
 
-// ---------------------------------------------------------------- terminal
-
-function TerminalPanel(props: { sessionId: string }): JSX.Element {
-  const [buffer, setBuffer] = useState('')
-  const [running, setRunning] = useState(false)
-  const [cmd, setCmd] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const outRef = useRef<HTMLPreElement>(null)
-  const stickBottom = useRef(true)
-
-  useEffect(() => {
-    setBuffer('')
-    void window.harness.term.snapshot(props.sessionId).then((s) => {
-      setBuffer(s.buffer)
-      setRunning(s.running)
-    })
-    return window.harness.term.onData((d) => {
-      if (d.sessionId !== props.sessionId) return
-      if (d.chunk) setBuffer((b) => (b + d.chunk).slice(-200_000))
-      if (d.done) setRunning(false)
-    })
-  }, [props.sessionId])
-
-  useEffect(() => {
-    const el = outRef.current
-    if (el && stickBottom.current) el.scrollTop = el.scrollHeight
-  }, [buffer])
-
-  const run = async (): Promise<void> => {
-    const command = cmd.trim()
-    if (!command) return
-    setError(null)
-    const res = await window.harness.term.run(props.sessionId, command)
-    if (!res.ok) {
-      setError(res.error ?? 'Failed to run.')
-      return
-    }
-    setRunning(true)
-    setCmd('')
-  }
-
-  return (
-    <div className="term-wrap">
-      <pre
-        ref={outRef}
-        className="term-out"
-        onScroll={(e) => {
-          const el = e.currentTarget
-          stickBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
-        }}
-      >
-        {buffer || 'Run a command in the workspace — output streams here.\n'}
-      </pre>
-      {error && <div className="term-error">{error}</div>}
-      <div className="term-input-row">
-        <span className="term-prompt">{running ? '…' : '$'}</span>
-        <input
-          className="term-input"
-          value={cmd}
-          placeholder={running ? 'command running — stop it to run another' : 'npm run dev'}
-          onChange={(e) => setCmd(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !running) void run()
-          }}
-        />
-        {running ? (
-          <button className="mini-btn danger" onClick={() => void window.harness.term.kill(props.sessionId)}>
-            stop
-          </button>
-        ) : (
-          <button className="mini-btn" onClick={() => void run()} disabled={!cmd.trim()}>
-            run
-          </button>
-        )}
-      </div>
-    </div>
-  )
-}
-
 // -------------------------------------------------------------------- dock
 
-export default function RightDock({ session }: { session: SessionMeta | null }): JSX.Element | null {
+export default function RightDock({
+  session,
+  onSendToChat,
+  forceOpenTerm
+}: {
+  session: SessionMeta | null
+  onSendToChat?: (text: string) => void
+  /** Increment to force-open the terminal panel (e.g. pin from agent) */
+  forceOpenTerm?: number
+}): JSX.Element | null {
   const [open, setOpen] = useState<PanelId[]>(() => {
     try {
       const raw = JSON.parse(localStorage.getItem(STORE_KEY) ?? '[]')
@@ -461,6 +392,12 @@ export default function RightDock({ session }: { session: SessionMeta | null }):
     setExpanded((e) => (e === id ? null : e))
   }, [])
 
+  // force-open terminal
+  useEffect(() => {
+    if (!forceOpenTerm) return
+    setOpen((prev) => (prev.includes('term') ? prev : [...prev, 'term']))
+  }, [forceOpenTerm])
+
   if (!session) return null
 
   const openFile = (rel: string): void => {
@@ -495,7 +432,12 @@ export default function RightDock({ session }: { session: SessionMeta | null }):
       ) : id === 'tasks' ? (
         <TasksPanel sessionId={session.id} />
       ) : (
-        <TerminalPanel sessionId={session.id} />
+        <TerminalPanel
+          sessionId={session.id}
+          workspaceCwd={session.cwd}
+          onOpenFile={openFile}
+          onSendToChat={onSendToChat}
+        />
       )}
     </Panel>
   )

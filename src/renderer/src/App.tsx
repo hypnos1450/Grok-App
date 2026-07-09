@@ -18,7 +18,12 @@ export default function App(): JSX.Element {
   const [switcherOpen, setSwitcherOpen] = useState(false)
   /** Per-session activity for the sidebar: running / blocked on approval / finished unseen */
   const [sessionStatus, setSessionStatus] = useState<Record<string, 'running' | 'blocked' | 'done'>>({})
-  const chatActions = useRef<{ focusInput?: () => void; exportSession?: () => void }>({})
+  const chatActions = useRef<{
+    focusInput?: () => void
+    exportSession?: () => void
+    insertText?: (text: string) => void
+  }>({})
+  const [forceOpenTerm, setForceOpenTerm] = useState(0)
   const activeIdRef = useRef<string | null>(null)
   activeIdRef.current = activeId
 
@@ -46,6 +51,13 @@ export default function App(): JSX.Element {
   // Tag the platform so CSS can enable the translucent (vibrancy) sidebar on macOS.
   useEffect(() => {
     document.documentElement.dataset.platform = window.harness.platform
+  }, [])
+
+  // Tool cards can request the terminal panel without going through IPC.
+  useEffect(() => {
+    const open = (): void => setForceOpenTerm((n) => n + 1)
+    window.addEventListener('harness:open-terminal', open)
+    return () => window.removeEventListener('harness:open-terminal', open)
   }, [])
 
   // Keep sidebar titles/usage and per-session activity dots in sync.
@@ -126,6 +138,9 @@ export default function App(): JSX.Element {
         case 'export-session':
           chatActions.current.exportSession?.()
           break
+        case 'open-terminal':
+          setForceOpenTerm((n) => n + 1)
+          break
       }
     })
   }, [newSession])
@@ -199,7 +214,16 @@ export default function App(): JSX.Element {
           />
         )}
       </div>
-      <RightDock session={active} />
+      <RightDock
+        session={active}
+        forceOpenTerm={forceOpenTerm}
+        onSendToChat={(text) => {
+          const block = text.trim()
+          if (!block) return
+          chatActions.current.insertText?.(`\`\`\`terminal\n${block}\n\`\`\`\n`)
+          chatActions.current.focusInput?.()
+        }}
+      />
       {showSettings && (
         <SettingsModal
           settings={settings}

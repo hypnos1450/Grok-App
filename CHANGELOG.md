@@ -4,6 +4,29 @@ All notable changes to Grok Harness. Each release on GitHub carries the notes
 from its section here — the release workflow extracts them automatically when a
 version tag is pushed.
 
+## 0.4.3 — 2026-07-09
+
+**Terminal overhaul**
+
+- Real terminal panel with xterm.js (colors, selection, search, clickable links)
+- Interactive PTY via node-pty when available, with enhanced multi-job spawn fallback
+- Multiple concurrent job tabs per session (create/close, process-tree kill, restart last command)
+- Sticky cwd, command history, scrollback persistence, open-in-system-terminal
+- Pin agent `bash` tool cards into the Terminal panel; send terminal selection to chat
+- Exit notifications when a job finishes while the app is unfocused
+
+**MCP install-from-link**
+
+- Paste a GitHub URL, owner/repo, or npm package in Settings → MCP to install a server
+- Detects start command (package.json, mcp.json, smithery, known recipes) and required API keys
+- Secrets form before install; per-server env editor afterward
+- Manual add kept under a collapsible section
+
+**Context usage meter**
+
+- Header pill now shows live context fill vs model window (e.g. `27% · 135k / 500k`)
+- Lifetime session totals moved to the tooltip so long sessions no longer look like a multi‑million-token window
+
 ## 0.4.2 — 2026-07-09
 
 **Home dashboard**
