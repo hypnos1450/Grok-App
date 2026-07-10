@@ -4,13 +4,20 @@ All notable changes to Conduit. Each release on GitHub carries the notes
 from its section here — the release workflow extracts them automatically when a
 version tag is pushed.
 
+## 0.5.2 — 2026-07-10
+
+**Full Conduit branding + repo rename**
+
+- GitHub repository renamed **`hypnos1450/Grok-App` → `hypnos1450/Conduit`**
+- electron-builder publish target and git remote updated to the new repo
+- Auto-update feed now points at Conduit releases
+
 ## 0.5.1 — 2026-07-10
 
 **Rename to Conduit**
 
 - Product name, window title, installers, and UI branding are now **Conduit**
 - Bundle id `com.conduit.app`; npm package name `conduit`
-- GitHub release repo remains `hypnos1450/Grok-App` (auto-update feed unchanged)
 
 ## 0.5.0 — 2026-07-10
 

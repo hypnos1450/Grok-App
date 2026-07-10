@@ -1,6 +1,6 @@
 # Conduit
 
-Cross-platform Electron desktop agent for xAI **Grok 4.5** (menu: “Grok Build”, wire `grok-4.5`, internal id `grok-build-0.1`) and **Grok 4.3**. SuperGrok / X Premium+ OAuth (or API-key fallback); permissioned tool loop on the user’s machine. Talks to xAI **Responses API** (`/v1/responses`). Version in `package.json` (currently 0.4.x). Repo: `hypnos1450/Grok-App`.
+Cross-platform Electron desktop agent for xAI **Grok 4.5** (menu: “Grok Build”, wire `grok-4.5`, internal id `grok-build-0.1`) and **Grok 4.3**. SuperGrok / X Premium+ OAuth (or API-key fallback); permissioned tool loop on the user’s machine. Talks to xAI **Responses API** (`/v1/responses`). Version in `package.json` (currently 0.4.x). Repo: `hypnos1450/Conduit`.
 
 ## Layout
 
