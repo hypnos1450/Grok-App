@@ -1,11 +1,21 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { AuthState, ModelId, SessionMeta, Settings, UpdateInfo } from '@shared/types'
+import {
+  AuthState,
+  ModelId,
+  OfflineStatus,
+  SessionMeta,
+  Settings,
+  UpdateInfo,
+  WorkspaceTrustState
+} from '@shared/types'
 import Login from './components/Login'
 import Sidebar from './components/Sidebar'
 import Chat from './components/Chat'
 import Home from './components/Home'
 import SettingsModal from './components/SettingsModal'
 import RightDock from './components/RightDock'
+import CommandPalette from './components/CommandPalette'
+import SessionSearch from './components/SessionSearch'
 import { XIcon } from './components/Icons'
 
 export default function App(): JSX.Element {
@@ -14,16 +24,24 @@ export default function App(): JSX.Element {
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [settingsTab, setSettingsTab] = useState<string | undefined>(undefined)
   const [update, setUpdate] = useState<UpdateInfo | null>(null)
   const [switcherOpen, setSwitcherOpen] = useState(false)
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [sessionSearchOpen, setSessionSearchOpen] = useState(false)
+  const [offline, setOffline] = useState<OfflineStatus | null>(null)
+  const [trust, setTrust] = useState<WorkspaceTrustState | null>(null)
+  const [forceOpenTerm, setForceOpenTerm] = useState(0)
+  const [forceOpenReview, setForceOpenReview] = useState(0)
   /** Per-session activity for the sidebar: running / blocked on approval / finished unseen */
   const [sessionStatus, setSessionStatus] = useState<Record<string, 'running' | 'blocked' | 'done'>>({})
   const chatActions = useRef<{
     focusInput?: () => void
     exportSession?: () => void
     insertText?: (text: string) => void
+    togglePlanOnly?: () => void
+    createPr?: () => void
   }>({})
-  const [forceOpenTerm, setForceOpenTerm] = useState(0)
   const activeIdRef = useRef<string | null>(null)
   activeIdRef.current = activeId
 
@@ -39,31 +57,46 @@ export default function App(): JSX.Element {
       ])
       setAuth(a)
       setSettings(s)
+      document.documentElement.dataset.reducedMotion = s.reducedMotion ? '1' : '0'
       await refreshSessions()
+      void window.harness.status.probe().then(setOffline)
     })()
   }, [refreshSessions])
 
   useEffect(() => {
     if (!settings) return
     document.documentElement.dataset.theme = settings.theme === 'system' ? '' : settings.theme
+    document.documentElement.dataset.reducedMotion = settings.reducedMotion ? '1' : '0'
   }, [settings])
 
-  // Tag the platform so CSS can enable the translucent (vibrancy) sidebar on macOS.
   useEffect(() => {
     document.documentElement.dataset.platform = window.harness.platform
   }, [])
 
-  // Tool cards can request the terminal panel without going through IPC.
+  // Workspace trust for active session
+  useEffect(() => {
+    const active = sessions.find((s) => s.id === activeId)
+    if (!active || !settings?.requireWorkspaceTrust) {
+      setTrust(null)
+      return
+    }
+    void window.harness.workspace.getTrust(active.cwd).then(setTrust)
+  }, [activeId, sessions, settings?.requireWorkspaceTrust, settings?.trustedWorkspaces])
+
   useEffect(() => {
     const open = (): void => setForceOpenTerm((n) => n + 1)
     window.addEventListener('harness:open-terminal', open)
     return () => window.removeEventListener('harness:open-terminal', open)
   }, [])
 
-  // Keep sidebar titles/usage and per-session activity dots in sync.
   useEffect(() => {
     return window.harness.agent.onEvent((ev) => {
       if (ev.type === 'title' || ev.type === 'turn-end') void refreshSessions()
+      if (ev.type === 'notice' && (ev.level === 'error' || ev.level === 'warn')) {
+        if (/sign in|session expired|network|offline|401|403/i.test(ev.message)) {
+          void window.harness.status.probe().then(setOffline)
+        }
+      }
       if (!('sessionId' in ev)) return
       const sid = ev.sessionId
       if (ev.type === 'turn-start') {
@@ -71,21 +104,19 @@ export default function App(): JSX.Element {
       } else if (ev.type === 'permission-request') {
         setSessionStatus((s) => ({ ...s, [sid]: 'blocked' }))
       } else if (ev.type === 'item' || ev.type === 'item-update') {
-        // Activity after a permission prompt means it was answered.
         setSessionStatus((s) => (s[sid] === 'blocked' ? { ...s, [sid]: 'running' } : s))
       } else if (ev.type === 'turn-end') {
         setSessionStatus((s) => {
           const next = { ...s }
-          // Finished in the background → badge until the user views it.
           if (sid !== activeIdRef.current) next[sid] = 'done'
           else delete next[sid]
           return next
         })
+        if (sid === activeIdRef.current) setForceOpenReview((n) => n + 1)
       }
     })
   }, [refreshSessions])
 
-  // Viewing a session clears its "finished" badge.
   useEffect(() => {
     if (!activeId) return
     setSessionStatus((s) => {
@@ -96,7 +127,6 @@ export default function App(): JSX.Element {
     })
   }, [activeId])
 
-  // Update availability.
   useEffect(() => {
     const offA = window.harness.update.onAvailable(setUpdate)
     const offD = window.harness.update.onDownloaded(setUpdate)
@@ -104,6 +134,14 @@ export default function App(): JSX.Element {
       offA()
       offD()
     }
+  }, [])
+
+  // Periodic health probe
+  useEffect(() => {
+    const t = setInterval(() => {
+      void window.harness.status.probe().then(setOffline)
+    }, 120_000)
+    return () => clearInterval(t)
   }, [])
 
   const newSession = useCallback(
@@ -115,22 +153,24 @@ export default function App(): JSX.Element {
     [refreshSessions]
   )
 
-  // Native menu actions.
-  useEffect(() => {
-    return window.harness.onMenuAction((action) => {
-      if (action.startsWith('focus-session:')) {
-        setActiveId(action.slice('focus-session:'.length))
-        return
-      }
-      switch (action) {
+  const runPaletteAction = useCallback(
+    (id: string) => {
+      switch (id) {
         case 'new-session':
           void newSession()
           break
         case 'switch-session':
           setSwitcherOpen(true)
           break
+        case 'search-sessions':
+          setSessionSearchOpen(true)
+          break
         case 'settings':
+          setSettingsTab(undefined)
           setShowSettings(true)
+          break
+        case 'home':
+          setActiveId(null)
           break
         case 'focus-input':
           chatActions.current.focusInput?.()
@@ -141,9 +181,57 @@ export default function App(): JSX.Element {
         case 'open-terminal':
           setForceOpenTerm((n) => n + 1)
           break
+        case 'open-review':
+          setForceOpenReview((n) => n + 1)
+          break
+        case 'toggle-plan-only':
+          chatActions.current.togglePlanOnly?.()
+          break
+        case 'create-pr':
+          chatActions.current.createPr?.()
+          break
+        case 'stop-agent':
+          if (activeIdRef.current) void window.harness.agent.cancel(activeIdRef.current)
+          break
+        case 'check-update':
+          void window.harness.update.check().then((r) => {
+            if (r.ok && r.version) setUpdate({ version: r.version, ready: false })
+            else if (!r.ok) alert(r.error ?? 'Update check failed')
+            else alert('You are up to date.')
+          })
+          break
+        case 'reveal-logs':
+          void window.harness.revealLogs()
+          break
+        case 'copy-diagnostics':
+          void window.harness.crash.copyDiagnostics().then((r) => {
+            if (r.ok && r.path) alert(`Diagnostics saved to:\n${r.path}`)
+            else if (r.error) alert(r.error)
+          })
+          break
+        case 'command-palette':
+          setPaletteOpen(true)
+          break
+        default:
+          break
       }
+    },
+    [newSession]
+  )
+
+  useEffect(() => {
+    return window.harness.onMenuAction((action) => {
+      if (action.startsWith('focus-session:')) {
+        setActiveId(action.slice('focus-session:'.length))
+        return
+      }
+      if (action === 'command-palette') {
+        setPaletteOpen(true)
+        return
+      }
+      runPaletteAction(action)
     })
-  }, [newSession])
+  }, [runPaletteAction])
 
   if (auth === null || settings === null) {
     return <div className="app" />
@@ -154,6 +242,13 @@ export default function App(): JSX.Element {
   }
 
   const active = sessions.find((s) => s.id === activeId) ?? null
+  const showOffline =
+    offline && (!offline.online || !offline.authOk) && offline.message
+  const showTrust =
+    active &&
+    settings.requireWorkspaceTrust &&
+    trust &&
+    trust.level !== 'trusted'
 
   return (
     <div className="app">
@@ -172,9 +267,63 @@ export default function App(): JSX.Element {
           if (activeId === sid) setActiveId(null)
           await refreshSessions()
         }}
-        onOpenSettings={() => setShowSettings(true)}
+        onOpenSettings={() => {
+          setSettingsTab(undefined)
+          setShowSettings(true)
+        }}
+        onSearchSessions={() => setSessionSearchOpen(true)}
       />
       <div className="main">
+        {showOffline && (
+          <div className="status-banner warn">
+            <span>{offline!.message}</span>
+            <button
+              className="btn"
+              onClick={() => void window.harness.status.probe().then(setOffline)}
+            >
+              Retry
+            </button>
+            {!offline!.authOk && (
+              <button
+                className="btn primary"
+                onClick={() => {
+                  setSettingsTab('About')
+                  setShowSettings(true)
+                }}
+              >
+                Re-authenticate
+              </button>
+            )}
+          </div>
+        )}
+        {showTrust && (
+          <div className="status-banner trust">
+            <span>
+              Trust this workspace to let the agent use tools here?
+              <br />
+              <code>{active!.cwd}</code>
+            </span>
+            <button
+              className="btn primary"
+              onClick={() =>
+                void window.harness.workspace.setTrust(active!.cwd, 'trusted').then((t) => {
+                  setTrust(t)
+                  void window.harness.settings.get().then(setSettings)
+                })
+              }
+            >
+              Trust workspace
+            </button>
+            <button
+              className="btn"
+              onClick={() =>
+                void window.harness.workspace.setTrust(active!.cwd, 'denied').then(setTrust)
+              }
+            >
+              Not now
+            </button>
+          </div>
+        )}
         {update && (
           <div className="update-banner">
             <span>
@@ -188,7 +337,6 @@ export default function App(): JSX.Element {
                 onClick={() => {
                   void window.harness.update.install().then((res) => {
                     if (res && 'ok' in res && !res.ok) {
-                      // Still downloading or install path failed — keep banner.
                       console.warn('update install:', res.error)
                     }
                   })
@@ -216,6 +364,10 @@ export default function App(): JSX.Element {
               await window.harness.sessions.setModel(sid, model)
               await refreshSessions()
             }}
+            onSessionMeta={async () => {
+              await refreshSessions()
+            }}
+            trusted={!showTrust}
           />
         ) : (
           <Home
@@ -227,12 +379,14 @@ export default function App(): JSX.Element {
             onQuickSession={() => void newSession()}
             onOpenProject={(cwd) => void newSession(cwd)}
             onOpenSession={setActiveId}
+            onSearchSessions={() => setSessionSearchOpen(true)}
           />
         )}
       </div>
       <RightDock
         session={active}
         forceOpenTerm={forceOpenTerm}
+        forceOpenReview={forceOpenReview}
         onSendToChat={(text) => {
           const block = text.trim()
           if (!block) return
@@ -245,6 +399,7 @@ export default function App(): JSX.Element {
           settings={settings}
           email={auth.email}
           activeCwd={active?.cwd}
+          initialTab={settingsTab}
           onClose={() => setShowSettings(false)}
           onChange={(s) => setSettings(s)}
           onLogout={async () => {
@@ -254,6 +409,16 @@ export default function App(): JSX.Element {
           }}
         />
       )}
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        onAction={runPaletteAction}
+      />
+      <SessionSearch
+        open={sessionSearchOpen}
+        onClose={() => setSessionSearchOpen(false)}
+        onOpen={setActiveId}
+      />
     </div>
   )
 }

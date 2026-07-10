@@ -14,7 +14,7 @@ import {
 } from '@shared/types'
 import { CheckIcon, XIcon } from './Icons'
 
-const TABS = ['General', 'Agent', 'Memory', 'Skills', 'MCP', 'About'] as const
+const TABS = ['General', 'Agent', 'Memory', 'Skills', 'MCP', 'Security', 'About'] as const
 type Tab = (typeof TABS)[number]
 
 function MemorySection({ cwd }: { cwd?: string }): JSX.Element {
@@ -625,15 +625,25 @@ export default function SettingsModal(props: {
   email?: string
   /** cwd of the active session, for project-scoped memory */
   activeCwd?: string
+  initialTab?: string
   onClose: () => void
   onChange: (s: Settings) => void
   onLogout: () => void
 }): JSX.Element {
-  const [tab, setTab] = useState<Tab>('General')
+  const initial = (TABS as readonly string[]).includes(props.initialTab ?? '')
+    ? (props.initialTab as Tab)
+    : 'General'
+  const [tab, setTab] = useState<Tab>(initial)
   const [updateMsg, setUpdateMsg] = useState<string | null>(null)
+  const [audit, setAudit] = useState<import('@shared/types').AuditEvent[]>([])
+  const [catalog, setCatalog] = useState<import('@shared/types').McpCatalogEntry[]>([])
   const update = async (patch: Partial<Settings>): Promise<void> => {
     props.onChange(await window.harness.settings.set(patch))
   }
+  useEffect(() => {
+    if (tab === 'Security') void window.harness.audit.list(100).then(setAudit)
+    if (tab === 'MCP') void window.harness.mcpCatalog.list().then(setCatalog)
+  }, [tab])
   const checkUpdate = async (): Promise<void> => {
     setUpdateMsg('Checking…')
     const r = await window.harness.update.check()
@@ -729,10 +739,34 @@ export default function SettingsModal(props: {
             <>
               <div className="setting-row">
                 <div>
+                  <div className="setting-label">Agent profile</div>
+                  <div className="setting-help">
+                    Careful / Balanced / YOLO — sets default permission mode
+                  </div>
+                </div>
+                <select
+                  value={props.settings.agentProfile}
+                  onChange={(e) => {
+                    const id = e.target.value as Settings['agentProfile']
+                    const map = {
+                      careful: 'ask' as PermissionMode,
+                      balanced: 'auto-edit' as PermissionMode,
+                      yolo: 'full-auto' as PermissionMode
+                    }
+                    void update({ agentProfile: id, permissionMode: map[id] })
+                  }}
+                >
+                  <option value="careful">careful</option>
+                  <option value="balanced">balanced</option>
+                  <option value="yolo">yolo</option>
+                </select>
+              </div>
+
+              <div className="setting-row">
+                <div>
                   <div className="setting-label">Permission mode</div>
                   <div className="setting-help">
-                    ask: approve edits & commands · auto-edit: file edits run freely · full-auto:
-                    everything runs
+                    ask · auto-edit · full-auto · plan-only (read/plan, no writes)
                   </div>
                 </div>
                 <select
@@ -742,6 +776,7 @@ export default function SettingsModal(props: {
                   <option value="ask">ask</option>
                   <option value="auto-edit">auto-edit</option>
                   <option value="full-auto">full-auto</option>
+                  <option value="plan-only">plan-only</option>
                 </select>
               </div>
 
@@ -755,6 +790,65 @@ export default function SettingsModal(props: {
                 <select
                   value={props.settings.enableWebSearch ? 'on' : 'off'}
                   onChange={(e) => void update({ enableWebSearch: e.target.value === 'on' })}
+                >
+                  <option value="on">on</option>
+                  <option value="off">off</option>
+                </select>
+              </div>
+
+              <div className="setting-row">
+                <div>
+                  <div className="setting-label">Test after edit</div>
+                  <div className="setting-help">
+                    After write/edit tools, remind the agent to run checks
+                  </div>
+                </div>
+                <select
+                  value={props.settings.testAfterEdit ? 'on' : 'off'}
+                  onChange={(e) => void update({ testAfterEdit: e.target.value === 'on' })}
+                >
+                  <option value="on">on</option>
+                  <option value="off">off</option>
+                </select>
+              </div>
+
+              <div className="setting-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                <div style={{ marginBottom: 6 }}>
+                  <div className="setting-label">Test command</div>
+                  <div className="setting-help">Optional preferred verify command (e.g. npm test)</div>
+                </div>
+                <input
+                  className="text-input"
+                  defaultValue={props.settings.testCommand}
+                  onBlur={(e) => void update({ testCommand: e.target.value })}
+                  placeholder="npm test"
+                />
+              </div>
+
+              <div className="setting-row">
+                <div>
+                  <div className="setting-label">Multi-model routing</div>
+                  <div className="setting-help">
+                    Use a lighter model for titles, compaction, and background review
+                  </div>
+                </div>
+                <select
+                  value={props.settings.multiModelRouting ? 'on' : 'off'}
+                  onChange={(e) => void update({ multiModelRouting: e.target.value === 'on' })}
+                >
+                  <option value="on">on</option>
+                  <option value="off">off</option>
+                </select>
+              </div>
+
+              <div className="setting-row">
+                <div>
+                  <div className="setting-label">Repository map</div>
+                  <div className="setting-help">Inject a frozen top-level file map into the system prompt</div>
+                </div>
+                <select
+                  value={props.settings.repoMapEnabled ? 'on' : 'off'}
+                  onChange={(e) => void update({ repoMapEnabled: e.target.value === 'on' })}
                 >
                   <option value="on">on</option>
                   <option value="off">off</option>
@@ -858,8 +952,136 @@ export default function SettingsModal(props: {
                   Connect external Model Context Protocol servers to add tools (stdio)
                 </div>
               </div>
+              {catalog.length > 0 && (
+                <div className="mcp-catalog" style={{ marginBottom: 12 }}>
+                  <div className="setting-label" style={{ marginBottom: 6 }}>
+                    Catalog
+                  </div>
+                  {catalog.map((c) => (
+                    <div key={c.id} className="mcp-catalog-row">
+                      <div>
+                        <b>{c.name}</b>
+                        <div className="setting-help">
+                          {c.description} · risk: {c.risk}
+                        </div>
+                      </div>
+                      <button
+                        className="mini-btn"
+                        onClick={() =>
+                          void window.harness.mcp.install(c.install).then(async () => {
+                            props.onChange(await window.harness.settings.get())
+                          })
+                        }
+                      >
+                        Install
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
               <McpSection settings={props.settings} onChange={props.onChange} />
             </div>
+          )}
+
+          {tab === 'Security' && (
+            <>
+              <div className="setting-row">
+                <div>
+                  <div className="setting-label">Require workspace trust</div>
+                  <div className="setting-help">
+                    Agent tools blocked until you trust the folder (VS Code-style)
+                  </div>
+                </div>
+                <select
+                  value={props.settings.requireWorkspaceTrust ? 'on' : 'off'}
+                  onChange={(e) => void update({ requireWorkspaceTrust: e.target.value === 'on' })}
+                >
+                  <option value="on">on</option>
+                  <option value="off">off</option>
+                </select>
+              </div>
+              <div className="setting-row">
+                <div>
+                  <div className="setting-label">Trusted workspaces</div>
+                  <div className="setting-help">
+                    {props.settings.trustedWorkspaces.length
+                      ? props.settings.trustedWorkspaces.slice(0, 5).join(' · ')
+                      : 'None yet'}
+                    {props.settings.trustedWorkspaces.length > 5
+                      ? ` · +${props.settings.trustedWorkspaces.length - 5} more`
+                      : ''}
+                  </div>
+                </div>
+                {props.activeCwd && (
+                  <button
+                    className="mini-btn"
+                    onClick={() =>
+                      void window.harness.workspace
+                        .setTrust(props.activeCwd!, 'trusted')
+                        .then(async () => props.onChange(await window.harness.settings.get()))
+                    }
+                  >
+                    Trust current
+                  </button>
+                )}
+              </div>
+              <div className="setting-row">
+                <div>
+                  <div className="setting-label">Audit log</div>
+                  <div className="setting-help">Record permissions, tools, MCP, and trust changes</div>
+                </div>
+                <select
+                  value={props.settings.auditLogEnabled ? 'on' : 'off'}
+                  onChange={(e) => void update({ auditLogEnabled: e.target.value === 'on' })}
+                >
+                  <option value="on">on</option>
+                  <option value="off">off</option>
+                </select>
+              </div>
+              <div className="setting-row">
+                <div>
+                  <div className="setting-label">Allowlist</div>
+                  <div className="setting-help">
+                    {props.settings.globalAllowlist.length
+                      ? `${props.settings.globalAllowlist.length} global keys`
+                      : 'Empty — approvals are one-shot unless you choose Always'}
+                  </div>
+                </div>
+                <button
+                  className="mini-btn"
+                  disabled={!props.settings.globalAllowlist.length}
+                  onClick={() => void update({ globalAllowlist: [] })}
+                >
+                  Clear allowlist
+                </button>
+              </div>
+              <div className="setting-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <div className="setting-label">Recent audit events</div>
+                  <span style={{ display: 'flex', gap: 6 }}>
+                    <button className="mini-btn" onClick={() => void window.harness.audit.export()}>
+                      Export
+                    </button>
+                    <button
+                      className="mini-btn"
+                      onClick={() => void window.harness.audit.clear().then(() => setAudit([]))}
+                    >
+                      Clear
+                    </button>
+                  </span>
+                </div>
+                <div className="audit-list">
+                  {audit.length === 0 && <div className="setting-help">No events yet</div>}
+                  {audit.slice(0, 40).map((e) => (
+                    <div key={e.id} className="audit-row">
+                      <span className="audit-kind">{e.kind}</span>
+                      <span className="audit-summary">{e.summary}</span>
+                      <span className="audit-ts">{new Date(e.ts).toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
           )}
 
           {tab === 'About' && (
@@ -879,6 +1101,17 @@ export default function SettingsModal(props: {
                     <option value="on">auto</option>
                     <option value="off">manual</option>
                   </select>
+                  <select
+                    value={props.settings.updateChannel}
+                    onChange={(e) => {
+                      const ch = e.target.value as Settings['updateChannel']
+                      void update({ updateChannel: ch })
+                      void window.harness.update.setChannel(ch)
+                    }}
+                  >
+                    <option value="latest">stable</option>
+                    <option value="beta">beta</option>
+                  </select>
                   <button className="mini-btn" onClick={() => void checkUpdate()}>
                     check now
                   </button>
@@ -887,12 +1120,39 @@ export default function SettingsModal(props: {
 
               <div className="setting-row">
                 <div>
-                  <div className="setting-label">Diagnostics</div>
-                  <div className="setting-help">Open the folder with application logs</div>
+                  <div className="setting-label">Reduced motion</div>
+                  <div className="setting-help">Minimize animations for accessibility</div>
                 </div>
-                <button className="mini-btn" onClick={() => void window.harness.revealLogs()}>
-                  Reveal logs
-                </button>
+                <select
+                  value={props.settings.reducedMotion ? 'on' : 'off'}
+                  onChange={(e) => void update({ reducedMotion: e.target.value === 'on' })}
+                >
+                  <option value="on">on</option>
+                  <option value="off">off</option>
+                </select>
+              </div>
+
+              <div className="setting-row">
+                <div>
+                  <div className="setting-label">Diagnostics</div>
+                  <div className="setting-help">Logs and a support bundle for troubleshooting</div>
+                </div>
+                <span style={{ display: 'flex', gap: 6 }}>
+                  <button className="mini-btn" onClick={() => void window.harness.revealLogs()}>
+                    Reveal logs
+                  </button>
+                  <button
+                    className="mini-btn"
+                    onClick={() =>
+                      void window.harness.crash.copyDiagnostics().then((r) => {
+                        if (r.ok && r.path) alert(`Saved:\n${r.path}`)
+                        else if (r.error) alert(r.error)
+                      })
+                    }
+                  >
+                    Save diagnostics
+                  </button>
+                </span>
               </div>
 
               <div className="setting-row">

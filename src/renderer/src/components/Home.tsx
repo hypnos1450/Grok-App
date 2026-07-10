@@ -46,6 +46,7 @@ export default function Home(props: {
   onQuickSession: () => void
   onOpenProject: (cwd: string) => void
   onOpenSession: (id: string) => void
+  onSearchSessions?: () => void
 }): JSX.Element {
   const { sessions } = props
 
@@ -136,6 +137,20 @@ export default function Home(props: {
                 <ArrowRightIcon size={15} />
               </span>
             </button>
+            {props.onSearchSessions && (
+              <button className="home-action" onClick={props.onSearchSessions}>
+                <span className="home-action-icon">
+                  <MessageIcon size={19} />
+                </span>
+                <span className="home-action-text">
+                  <b>Search sessions</b>
+                  <span>Find past work by title, path, or digest</span>
+                </span>
+                <span className="home-action-arrow">
+                  <ArrowRightIcon size={15} />
+                </span>
+              </button>
+            )}
           </div>
 
           <div className="home-stats">

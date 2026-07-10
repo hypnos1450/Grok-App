@@ -96,10 +96,14 @@ export default function Chat(props: {
   settings: Settings
   onModelChange: (sessionId: string, model: ModelId) => void
   onForked: (meta: SessionMeta) => void
+  onSessionMeta?: () => void
+  trusted?: boolean
   registerActions: (a: {
     focusInput?: () => void
     exportSession?: () => void
     insertText?: (text: string) => void
+    togglePlanOnly?: () => void
+    createPr?: () => void
   }) => void
 }): JSX.Element {
   const { session } = props
@@ -113,6 +117,7 @@ export default function Chat(props: {
   const [input, setInput] = useState('')
   const [model, setModel] = useState<ModelId>(session?.model ?? props.settings.defaultModel)
   const [effort, setEffort] = useState<ReasoningEffort | ''>(session?.reasoningEffort ?? '')
+  const [planOnly, setPlanOnly] = useState(!!session?.planOnly)
   const [images, setImages] = useState<string[]>([])
   const [files, setFiles] = useState<string[]>([])
   const [editing, setEditing] = useState<{ id: string; text: string } | null>(null)
@@ -141,7 +146,7 @@ export default function Chat(props: {
 
   useEffect(reloadSession, [reloadSession])
 
-  // Register menu-driven actions (focus input, export) for this session.
+  // Register menu-driven actions (focus input, export, plan-only, PR) for this session.
   useEffect(() => {
     props.registerActions({
       focusInput: () => textareaRef.current?.focus(),
@@ -161,9 +166,29 @@ export default function Chat(props: {
           el.style.height = 'auto'
           el.style.height = Math.min(el.scrollHeight, 200) + 'px'
         })
+      },
+      togglePlanOnly: () => {
+        if (!session) return
+        const next = !planOnly
+        setPlanOnly(next)
+        void window.harness.sessions.setPlanOnly(session.id, next).then(() => props.onSessionMeta?.())
+      },
+      createPr: () => {
+        if (!session) return
+        const title = window.prompt('Pull request title', session.title || 'Update')
+        if (!title) return
+        void window.harness.github.createPr(session.id, { title, draft: true }).then((r) => {
+          if (r.ok && r.pr) {
+            if (window.confirm(`PR #${r.pr.number} created. Open in browser?`)) {
+              void window.harness.github.openPr(r.pr.url)
+            }
+          } else {
+            alert(r.error ?? 'Failed to create PR (is `gh` installed and authenticated?)')
+          }
+        })
       }
     })
-  }, [session?.id]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [session?.id, planOnly]) // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!session) return
@@ -253,6 +278,13 @@ export default function Chat(props: {
       setInput('')
       return
     }
+    if (props.trusted === false) {
+      setNotice({
+        level: 'warn',
+        message: 'Trust this workspace before running the agent (banner above).'
+      })
+      return
+    }
     setInput('')
     setRunning(true)
     setNotice(null)
@@ -264,16 +296,24 @@ export default function Chat(props: {
         const expanded = await window.harness.commands.resolve(cmd[1], cmd[2])
         if (expanded) finalText = expanded
       }
-      await window.harness.agent.send(session.id, finalText, {
-        images: images.length ? images : undefined,
-        files: files.length ? files : undefined
-      })
+      try {
+        await window.harness.agent.send(session.id, finalText, {
+          images: images.length ? images : undefined,
+          files: files.length ? files : undefined
+        })
+      } catch (err) {
+        setRunning(false)
+        setNotice({
+          level: 'error',
+          message: err instanceof Error ? err.message : String(err)
+        })
+      }
     })()
     setImages([])
     setFiles([])
     setMention(null)
     setSlash(null)
-  }, [session, running, input, images, files])
+  }, [session, running, input, images, files, props.trusted])
 
   const updateSlash = useCallback((value: string) => {
     const m = /^\/([a-z0-9-]*)$/.exec(value)
@@ -824,9 +864,38 @@ export default function Chat(props: {
                 </select>
               </span>
             )}
-            <span className="composer-chip" title={`Permission mode: ${props.settings.permissionMode}`}>
-              {props.settings.permissionMode}
-            </span>
+            <button
+              type="button"
+              className={`composer-chip plan-toggle${planOnly ? ' on' : ''}`}
+              title="Plan-only: agent can read and plan, not write or run shell"
+              onClick={() => {
+                const next = !planOnly
+                setPlanOnly(next)
+                void window.harness.sessions.setPlanOnly(session.id, next).then(() => props.onSessionMeta?.())
+              }}
+            >
+              {planOnly ? 'plan-only' : props.settings.permissionMode}
+            </button>
+            <button
+              type="button"
+              className="composer-chip"
+              title="Create a GitHub pull request (requires gh CLI)"
+              onClick={() => {
+                const title = window.prompt('Pull request title', session.title || 'Update')
+                if (!title) return
+                void window.harness.github.createPr(session.id, { title, draft: true }).then((r) => {
+                  if (r.ok && r.pr) {
+                    if (window.confirm(`PR #${r.pr.number} created. Open in browser?`)) {
+                      void window.harness.github.openPr(r.pr.url)
+                    }
+                  } else {
+                    alert(r.error ?? 'Failed to create PR (is `gh` installed and authenticated?)')
+                  }
+                })
+              }}
+            >
+              PR
+            </button>
             <span className="composer-spacer" />
             {running ? (
               <>

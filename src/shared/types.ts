@@ -12,13 +12,20 @@ export const MODELS: { id: ModelId; label: string; blurb: string; effort?: boole
   { id: 'grok-4.3', label: 'Grok 4.3', blurb: 'Flagship reasoning · 1M context' }
 ]
 
-export type PermissionMode = 'ask' | 'auto-edit' | 'full-auto'
+export type PermissionMode = 'ask' | 'auto-edit' | 'full-auto' | 'plan-only'
+
+/** Named risk profiles map to permission + feature defaults */
+export type AgentProfileId = 'careful' | 'balanced' | 'yolo'
+
+export type UpdateChannel = 'latest' | 'beta'
 
 export interface AuthState {
   method: 'oauth' | 'apiKey' | null
   email?: string
   /** True while an OAuth flow is waiting on the browser */
   pending?: boolean
+  /** Last probe failure message (offline / auth expired) */
+  lastError?: string
 }
 
 export interface Settings {
@@ -43,6 +50,26 @@ export interface Settings {
   autoUpdate: boolean
   /** System notifications when a run finishes or needs approval while unfocused */
   notifications: boolean
+  /** Named profile (drives permissionMode defaults in UI) */
+  agentProfile: AgentProfileId
+  /** After write/edit, inject a verify/test reminder into the tool result */
+  testAfterEdit: boolean
+  /** Prefer a cheaper model for title/compaction/review background calls */
+  multiModelRouting: boolean
+  /** Inject a frozen repo map into the system prompt */
+  repoMapEnabled: boolean
+  /** Require explicit trust before agent tools run in a workspace */
+  requireWorkspaceTrust: boolean
+  /** Trusted workspace absolute paths */
+  trustedWorkspaces: string[]
+  /** electron-updater channel */
+  updateChannel: UpdateChannel
+  /** Keep a local security audit log */
+  auditLogEnabled: boolean
+  /** Default test/verify command hint (e.g. npm test) for test-after-edit */
+  testCommand: string
+  /** Reduced motion / a11y */
+  reducedMotion: boolean
 }
 
 export interface McpServerConfig {
@@ -100,8 +127,44 @@ export const DEFAULT_SETTINGS: Settings = {
   enableSubagents: true,
   mcpServers: [],
   autoUpdate: true,
-  notifications: true
+  notifications: true,
+  agentProfile: 'balanced',
+  testAfterEdit: true,
+  multiModelRouting: true,
+  repoMapEnabled: true,
+  requireWorkspaceTrust: true,
+  trustedWorkspaces: [],
+  updateChannel: 'latest',
+  auditLogEnabled: true,
+  testCommand: '',
+  reducedMotion: false
 }
+
+export const AGENT_PROFILES: {
+  id: AgentProfileId
+  label: string
+  blurb: string
+  permissionMode: PermissionMode
+}[] = [
+  {
+    id: 'careful',
+    label: 'Careful',
+    blurb: 'Ask before every write/command · plan-friendly',
+    permissionMode: 'ask'
+  },
+  {
+    id: 'balanced',
+    label: 'Balanced',
+    blurb: 'Auto-edit files · ask for shell/MCP',
+    permissionMode: 'auto-edit'
+  },
+  {
+    id: 'yolo',
+    label: 'YOLO',
+    blurb: 'Full auto · still blocks catastrophic commands',
+    permissionMode: 'full-auto'
+  }
+]
 
 /** Current on-disk schema version for sessions and settings. */
 export const SCHEMA_VERSION = 1
@@ -122,6 +185,10 @@ export interface SessionMeta {
   totalInputTokens?: number
   totalOutputTokens?: number
   totalCachedTokens?: number
+  /** Searchable session digest from background review */
+  digest?: string
+  /** Plan-only mode for this session (overrides settings.permissionMode) */
+  planOnly?: boolean
 }
 
 /** One step of the agent-maintained live plan (update_plan tool) */
@@ -298,6 +365,109 @@ export interface UpdateInfo {
   notes?: string
   /** True once the package is fully downloaded and ready to install */
   ready?: boolean
+  channel?: UpdateChannel
+}
+
+// ---- workspace trust / security / search / palette / github
+
+export type WorkspaceTrustLevel = 'untrusted' | 'trusted' | 'denied'
+
+export interface WorkspaceTrustState {
+  cwd: string
+  level: WorkspaceTrustLevel
+  trustedAt?: number
+}
+
+export type AuditEventKind =
+  | 'permission'
+  | 'tool'
+  | 'settings'
+  | 'auth'
+  | 'mcp'
+  | 'trust'
+  | 'export'
+  | 'agent'
+  | 'terminal'
+
+export interface AuditEvent {
+  id: string
+  ts: number
+  kind: AuditEventKind
+  sessionId?: string
+  summary: string
+  detail?: string
+}
+
+export interface SessionSearchHit {
+  sessionId: string
+  title: string
+  cwd: string
+  updatedAt: number
+  snippet?: string
+  matchField?: 'title' | 'cwd' | 'digest' | 'message'
+}
+
+export interface PaletteAction {
+  id: string
+  label: string
+  section?: string
+  shortcut?: string
+  /** When set, renderer handles; otherwise main may handle via palette:run */
+  enabled?: boolean
+}
+
+export interface GitHubPrDraft {
+  title: string
+  body?: string
+  base?: string
+  head?: string
+  draft?: boolean
+}
+
+export interface GitHubPrInfo {
+  number: number
+  url: string
+  title: string
+  state: string
+  base: string
+  head: string
+}
+
+export interface GitHubRepoInfo {
+  owner: string
+  name: string
+  defaultBranch?: string
+  remoteUrl?: string
+}
+
+export interface CrashReportInfo {
+  id: string
+  ts: number
+  path: string
+  version?: string
+}
+
+export interface McpCatalogEntry {
+  id: string
+  name: string
+  description: string
+  /** Install input for mcp:install (npm package or github url) */
+  install: string
+  risk: 'low' | 'medium' | 'high'
+  envNeeds?: string[]
+}
+
+export interface TurnChangeSummary {
+  sessionId: string
+  files: { path: string; kind: 'write' | 'edit' }[]
+  plan?: PlanStep[]
+}
+
+export interface OfflineStatus {
+  online: boolean
+  authOk: boolean
+  message?: string
+  checkedAt: number
 }
 
 export interface McpServerStatus {
@@ -407,6 +577,12 @@ export interface HarnessApi {
     /** Export a transcript to markdown via a save dialog. Returns saved path or null */
     export(sessionId: string): Promise<string | null>
     gitStatus(sessionId: string): Promise<GitStatus>
+    /** Full-text search across session titles, digests, and recent messages */
+    search(query: string, limit?: number): Promise<SessionSearchHit[]>
+    /** Toggle plan-only mode for this session */
+    setPlanOnly(id: string, planOnly: boolean): Promise<void>
+    /** Files mutated in the latest agent turn (for review panel) */
+    turnChanges(sessionId: string): Promise<TurnChangeSummary | null>
   }
   agent: {
     send(sessionId: string, text: string, attachments?: Attachments): Promise<void>
@@ -528,14 +704,49 @@ export interface HarnessApi {
   update: {
     check(): Promise<{ ok: boolean; version?: string; error?: string }>
     install(): Promise<{ ok: boolean; error?: string } | void>
+    getChannel(): Promise<UpdateChannel>
+    setChannel(channel: UpdateChannel): Promise<UpdateChannel>
     onAvailable(cb: (info: UpdateInfo) => void): () => void
     onDownloaded(cb: (info: UpdateInfo) => void): () => void
+  }
+  workspace: {
+    getTrust(cwd: string): Promise<WorkspaceTrustState>
+    setTrust(cwd: string, level: 'trusted' | 'denied'): Promise<WorkspaceTrustState>
+    listTrusted(): Promise<string[]>
+  }
+  audit: {
+    list(limit?: number): Promise<AuditEvent[]>
+    clear(): Promise<void>
+    export(): Promise<string | null>
+  }
+  palette: {
+    list(): Promise<PaletteAction[]>
+  }
+  github: {
+    repo(sessionId: string): Promise<GitHubRepoInfo | null>
+    createPr(sessionId: string, draft: GitHubPrDraft): Promise<{ ok: boolean; error?: string; pr?: GitHubPrInfo }>
+    openPr(url: string): Promise<void>
+  }
+  crash: {
+    list(): Promise<CrashReportInfo[]>
+    reveal(): Promise<void>
+    /** Bundle logs + version into a support zip path (or clipboard summary) */
+    copyDiagnostics(): Promise<{ ok: boolean; path?: string; error?: string }>
+  }
+  mcpCatalog: {
+    list(): Promise<McpCatalogEntry[]>
+  }
+  status: {
+    /** Network + auth health for offline banner */
+    get(): Promise<OfflineStatus>
+    probe(): Promise<OfflineStatus>
   }
   onMenuAction(cb: (action: string) => void): () => void
   /** Host platform ('darwin' | 'win32' | 'linux') */
   platform: string
   /** Absolute filesystem path of a dropped/selected File ('' if unavailable) */
   pathForFile(file: File): string
+  getVersion(): Promise<string>
   revealLogs(): Promise<void>
   pickFolder(): Promise<string | null>
   openExternal(url: string): Promise<void>

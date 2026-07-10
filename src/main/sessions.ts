@@ -27,10 +27,14 @@ export interface SessionRecord {
   gitSnapshot?: string
   /** Rolling summary produced by the background review — searchable */
   digest?: string
+  /** Repo map frozen at first turn */
+  repoMapSnapshot?: string
   /** File checkpoints, one per user message that caused mutations */
   checkpoints?: Checkpoint[]
   /** Last plan published by the agent via update_plan */
   plan?: PlanStep[]
+  /** Files mutated during the latest agent turn (for review panel) */
+  lastTurnChanges?: { path: string; kind: 'write' | 'edit' }[]
 }
 
 /**

@@ -29,6 +29,8 @@ import { ApiToolDef } from './provider'
 import { Tool, ToolContext, ToolResult, toolByName } from './tools'
 import { SessionRecord, sessionStore } from '../sessions'
 import { bashAllowKey, resolveInWorkspace, writeAllowKey } from '../security'
+import { buildRepoMap } from '../repo-map'
+import { appendAudit } from '../audit'
 
 export type PermissionResponder = (request: PermissionRequest) => Promise<{
   allow: boolean
@@ -78,15 +80,24 @@ export class AgentRun {
     return true
   }
 
+  private planOnly(): boolean {
+    return this.session.meta.planOnly === true || this.settings.permissionMode === 'plan-only'
+  }
+
   /** Static + MCP tools available this run, honoring settings toggles. */
   private resolveTools(): { defs: ApiToolDef[]; byName: Map<string, Tool> } {
     const byName = new Map<string, Tool>()
+    const planOnly = this.planOnly()
     for (const t of toolByName.values()) {
       if (!this.settings.memoryEnabled && (t.name === 'memory' || t.name === 'skill')) continue
       if (!this.settings.enableSubagents && t.name === 'spawn_agent') continue
+      if (planOnly && (t.kind === 'write' || t.kind === 'command')) continue
+      if (planOnly && t.name === 'spawn_agent') continue
       byName.set(t.name, t)
     }
-    for (const t of mcpManager.tools()) byName.set(t.name, t)
+    if (!planOnly) {
+      for (const t of mcpManager.tools()) byName.set(t.name, t)
+    }
     return { defs: [...byName.values()].map((t) => t.def), byName }
   }
 
@@ -99,8 +110,16 @@ export class AgentRun {
     if (this.session.gitSnapshot === undefined) {
       this.session.gitSnapshot = await gitSummary(this.session.meta.cwd)
     }
+    if (this.settings.repoMapEnabled && this.session.repoMapSnapshot === undefined) {
+      try {
+        this.session.repoMapSnapshot = buildRepoMap(this.session.meta.cwd)
+      } catch {
+        this.session.repoMapSnapshot = ''
+      }
+    }
     const { defs: toolDefsForRun, byName } = this.resolveTools()
     this.runTools = byName
+    this.session.lastTurnChanges = []
 
     const images = (attachments?.images ?? []).slice(0, 8)
     const files = (attachments?.files ?? []).slice(0, 5)
@@ -332,7 +351,10 @@ export class AgentRun {
     const memoryState = memoryStore.snapshot(cwd) || '(all memory stores are currently empty)'
     const skillsIndex = skillStore.index() || '(no skills saved yet)'
     const failures = recurringFailures()
-    const reviewProfile = profileFor(this.session.meta.model)
+    // Multi-model routing: prefer a lighter profile for background distillation.
+    const reviewProfile = this.settings.multiModelRouting
+      ? profileFor('grok-4.3')
+      : profileFor(this.session.meta.model)
     const result = await streamCompletion({
       model: reviewProfile.apiModel,
       // Distillation doesn't need deep reasoning — keep background calls cheap.
@@ -356,6 +378,7 @@ export class AgentRun {
     // Session digest: always refresh — it powers session_search recall.
     if (review.digest) {
       this.session.digest = review.digest.slice(0, 1200)
+      this.session.meta.digest = this.session.digest
     }
 
     let applied = 0
@@ -506,6 +529,35 @@ export class AgentRun {
       result = { ok: false, output: err instanceof Error ? err.message : String(err) }
     }
     if (!result.ok) recordFailure('error', tool.name, result.output)
+    // Track file mutations for the turn review panel.
+    if (result.ok && (tool.name === 'write_file' || tool.name === 'edit_file')) {
+      const p = String(input.path ?? '')
+      if (p) {
+        this.session.lastTurnChanges = this.session.lastTurnChanges ?? []
+        this.session.lastTurnChanges.push({
+          path: p,
+          kind: tool.name === 'write_file' ? 'write' : 'edit'
+        })
+      }
+    }
+    // Test-after-edit: append a verification hint so the model runs checks.
+    if (
+      result.ok &&
+      tool.kind === 'write' &&
+      this.settings.testAfterEdit &&
+      !this.planOnly()
+    ) {
+      const hint = this.settings.testCommand?.trim()
+        ? `Next: run \`${this.settings.testCommand.trim()}\` to verify.`
+        : 'Next: run the project typecheck/tests (or a targeted check) to verify this change.'
+      result = { ...result, output: `${result.output}\n\n[verify] ${hint}` }
+    }
+    if (this.settings.auditLogEnabled && (tool.kind === 'write' || tool.kind === 'command')) {
+      appendAudit('tool', `${tool.name}: ${tool.summarize(input)}`, {
+        sessionId,
+        detail: result.ok ? 'ok' : result.output.slice(0, 200)
+      })
+    }
     const updated: ChatItem = {
       ...item,
       status: result.ok ? 'ok' : 'error',
@@ -522,8 +574,12 @@ export class AgentRun {
     input: Record<string, unknown>,
     preview?: string
   ): Promise<boolean> {
-    const mode: PermissionMode = this.settings.permissionMode
+    const mode: PermissionMode = this.planOnly() ? 'plan-only' : this.settings.permissionMode
     if (tool.kind === 'read') return true
+    if (mode === 'plan-only' && (tool.kind === 'write' || tool.kind === 'command')) {
+      recordFailure('denied', tool.name, 'plan-only mode')
+      return false
+    }
     if (tool.kind === 'memory') {
       // Memory/skill writes are gated only by the dedicated approval setting —
       // they never touch the user's files, so the permission mode doesn't
@@ -561,6 +617,12 @@ export class AgentRun {
       priorApprovals: allowKey ? approvalCount(allowKey) : 0
     }
     const { allow, alwaysAllow, globalAllow } = await this.askPermission(request)
+    if (this.settings.auditLogEnabled) {
+      appendAudit('permission', `${allow ? 'allow' : 'deny'} ${tool.name}: ${tool.summarize(input)}`, {
+        sessionId: this.session.meta.id,
+        detail: allowKey ?? undefined
+      })
+    }
     if (allow) {
       if (allowKey) {
         bumpApproval(allowKey)
@@ -593,6 +655,13 @@ export class AgentRun {
     if (this.session.projectDocSnapshot === undefined) {
       this.session.projectDocSnapshot = readProjectDoc(this.session.meta.cwd)
     }
+    if (this.settings.repoMapEnabled && this.session.repoMapSnapshot === undefined) {
+      try {
+        this.session.repoMapSnapshot = buildRepoMap(this.session.meta.cwd)
+      } catch {
+        this.session.repoMapSnapshot = ''
+      }
+    }
     const system: ApiMessage = {
       role: 'system',
       content: profile.systemPrompt({
@@ -602,7 +671,10 @@ export class AgentRun {
         memorySnapshot: this.session.memorySnapshot,
         skillsIndex: this.session.skillsSnapshot,
         projectDoc: this.session.projectDocSnapshot,
-        gitBranch: this.session.gitSnapshot
+        gitBranch: this.session.gitSnapshot,
+        repoMap: this.settings.repoMapEnabled ? this.session.repoMapSnapshot : undefined,
+        planOnly: this.planOnly(),
+        testCommand: this.settings.testCommand
       })
     }
     return [system, ...this.session.apiMessages]
@@ -642,8 +714,9 @@ export class AgentRun {
     const toSummarize = this.session.apiMessages.slice(0, cut)
     const kept = this.session.apiMessages.slice(cut)
 
+    const compactProfile = this.settings.multiModelRouting ? profileFor('grok-4.3') : profile
     const summaryResult = await streamCompletion({
-      model: profile.apiModel,
+      model: compactProfile.apiModel,
       messages: [
         { role: 'system', content: COMPACTION_PROMPT },
         {
@@ -685,7 +758,9 @@ export class AgentRun {
 
   private async generateTitle(userText: string): Promise<void> {
     try {
-      const titleProfile = profileFor(this.session.meta.model)
+      const titleProfile = this.settings.multiModelRouting
+        ? profileFor('grok-4.3')
+        : profileFor(this.session.meta.model)
       const result = await streamCompletion({
         model: titleProfile.apiModel,
         reasoningEffort: titleProfile.supportsReasoningEffort ? 'low' : undefined,

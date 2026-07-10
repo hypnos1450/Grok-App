@@ -40,6 +40,18 @@ import {
   splitMcpSecrets,
   writeSecretsBlob
 } from './security'
+import { appendAudit, clearAudit, exportAuditMarkdown, listAudit } from './audit'
+import { addTrust, getTrust, isTrusted, removeTrust } from './workspace-trust'
+import { createPullRequest, detectRepo } from './github'
+import { MCP_CATALOG } from './mcp-catalog'
+import { logsDirectory as logsDir } from './logger'
+import type {
+  GitHubPrDraft,
+  OfflineStatus,
+  PaletteAction,
+  SessionSearchHit,
+  UpdateChannel
+} from '@shared/types'
 
 const runs = new Map<string, AgentRun>()
 const pendingPermissions = new Map<
@@ -162,6 +174,8 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       return fn(e, ...args)
     })
   }
+
+  handle('app:version', () => app.getVersion())
 
   // ---- auth
   handle('auth:getState', () => authManager.getState())
@@ -326,6 +340,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       const rec = await sessionStore.load(sessionId)
       if (!rec) throw new Error('Session not found')
       if (runs.has(sessionId)) throw new Error('Agent is already running in this session')
+      if (
+        !isTrusted(rec.meta.cwd, settings.trustedWorkspaces, settings.requireWorkspaceTrust)
+      ) {
+        throw new Error(
+          'This workspace is not trusted. Trust it from the banner or Settings → Security before running the agent.'
+        )
+      }
 
       const run = new AgentRun(
         rec,
@@ -360,6 +381,9 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
     const rec = await sessionStore.load(sessionId)
     if (!rec) throw new Error('Session not found')
     if (runs.has(sessionId)) throw new Error('Agent is already running in this session')
+    if (!isTrusted(rec.meta.cwd, settings.trustedWorkspaces, settings.requireWorkspaceTrust)) {
+      throw new Error('This workspace is not trusted. Trust it before running the agent.')
+    }
     const run = new AgentRun(
       rec,
       settings,
@@ -738,5 +762,264 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       // invalid URL
     }
     return undefined
+  })
+
+  // ---- sessions: search / plan-only / turn changes
+  handle('sessions:search', async (_e, query: string, limit?: number) => {
+    const q = String(query ?? '').trim().toLowerCase().slice(0, 200)
+    if (!q) return []
+    const max = Math.min(Number(limit) || 30, 100)
+    const hits: SessionSearchHit[] = []
+    for (const meta of sessionStore.list()) {
+      if (hits.length >= max) break
+      if (meta.title.toLowerCase().includes(q)) {
+        hits.push({
+          sessionId: meta.id,
+          title: meta.title,
+          cwd: meta.cwd,
+          updatedAt: meta.updatedAt,
+          snippet: meta.title,
+          matchField: 'title'
+        })
+        continue
+      }
+      if (meta.cwd.toLowerCase().includes(q)) {
+        hits.push({
+          sessionId: meta.id,
+          title: meta.title,
+          cwd: meta.cwd,
+          updatedAt: meta.updatedAt,
+          snippet: meta.cwd,
+          matchField: 'cwd'
+        })
+        continue
+      }
+      if (meta.digest?.toLowerCase().includes(q)) {
+        hits.push({
+          sessionId: meta.id,
+          title: meta.title,
+          cwd: meta.cwd,
+          updatedAt: meta.updatedAt,
+          snippet: meta.digest.slice(0, 160),
+          matchField: 'digest'
+        })
+        continue
+      }
+      // Light message scan for open/cached sessions only
+      const rec = await sessionStore.load(meta.id).catch(() => null)
+      if (!rec) continue
+      for (const item of rec.items.slice(-40)) {
+        if (item.kind === 'user' && item.text.toLowerCase().includes(q)) {
+          hits.push({
+            sessionId: meta.id,
+            title: meta.title,
+            cwd: meta.cwd,
+            updatedAt: meta.updatedAt,
+            snippet: item.text.slice(0, 160),
+            matchField: 'message'
+          })
+          break
+        }
+      }
+    }
+    return hits
+  })
+  handle('sessions:setPlanOnly', async (_e, sessionId: string, planOnly: boolean) => {
+    assertId(sessionId, 'sessionId')
+    const rec = await sessionStore.load(sessionId)
+    if (!rec) return
+    rec.meta.planOnly = !!planOnly
+    await sessionStore.save(rec)
+  })
+  handle('sessions:turnChanges', async (_e, sessionId: string) => {
+    if (!isValidId(sessionId)) return null
+    const rec = await sessionStore.load(sessionId)
+    if (!rec?.lastTurnChanges?.length) return null
+    return {
+      sessionId,
+      files: rec.lastTurnChanges,
+      plan: rec.plan
+    }
+  })
+
+  // ---- workspace trust
+  handle('workspace:getTrust', (_e, cwd: string) =>
+    getTrust(String(cwd ?? ''), settings.trustedWorkspaces)
+  )
+  handle('workspace:setTrust', (_e, cwd: string, level: 'trusted' | 'denied') => {
+    const c = String(cwd ?? '')
+    if (level === 'trusted') {
+      settings = {
+        ...settings,
+        trustedWorkspaces: addTrust(c, settings.trustedWorkspaces)
+      }
+    } else {
+      settings = {
+        ...settings,
+        trustedWorkspaces: removeTrust(c, settings.trustedWorkspaces)
+      }
+    }
+    saveSettings(settings)
+    if (settings.auditLogEnabled) {
+      appendAudit('trust', `${level} ${c}`)
+    }
+    return getTrust(c, settings.trustedWorkspaces)
+  })
+  handle('workspace:listTrusted', () => settings.trustedWorkspaces)
+
+  // ---- audit
+  handle('audit:list', (_e, limit?: number) =>
+    settings.auditLogEnabled ? listAudit(Number(limit) || 200) : []
+  )
+  handle('audit:clear', () => {
+    clearAudit()
+  })
+  handle('audit:export', async () => {
+    const win = getWindow()
+    if (!win) return null
+    const res = await dialog.showSaveDialog(win, {
+      defaultPath: 'grok-harness-audit.md',
+      filters: [{ name: 'Markdown', extensions: ['md'] }]
+    })
+    if (res.canceled || !res.filePath) return null
+    fs.writeFileSync(res.filePath, exportAuditMarkdown(), 'utf8')
+    return res.filePath
+  })
+
+  // ---- command palette catalog (renderer executes most actions)
+  handle('palette:list', () => {
+    const actions: PaletteAction[] = [
+      { id: 'new-session', label: 'New session', section: 'Session', shortcut: '⌘N' },
+      { id: 'switch-session', label: 'Switch session…', section: 'Session', shortcut: '⌘K' },
+      { id: 'search-sessions', label: 'Search sessions…', section: 'Session' },
+      { id: 'export-session', label: 'Export session…', section: 'Session', shortcut: '⇧⌘E' },
+      { id: 'home', label: 'Go home', section: 'Session' },
+      { id: 'settings', label: 'Settings…', section: 'App', shortcut: '⌘,' },
+      { id: 'command-palette', label: 'Command palette', section: 'App', shortcut: '⇧⌘P' },
+      { id: 'focus-input', label: 'Focus message input', section: 'Agent', shortcut: '⌘L' },
+      { id: 'stop-agent', label: 'Stop agent', section: 'Agent', shortcut: '⌘.' },
+      { id: 'toggle-plan-only', label: 'Toggle plan-only mode', section: 'Agent' },
+      { id: 'open-terminal', label: 'Open terminal panel', section: 'Panels' },
+      { id: 'open-review', label: 'Open review / diffs', section: 'Panels' },
+      { id: 'check-update', label: 'Check for updates', section: 'App' },
+      { id: 'reveal-logs', label: 'Reveal logs', section: 'App' },
+      { id: 'copy-diagnostics', label: 'Copy diagnostics bundle', section: 'App' },
+      { id: 'create-pr', label: 'Create GitHub pull request…', section: 'Git' }
+    ]
+    return actions
+  })
+
+  // ---- github
+  handle('github:repo', async (_e, sessionId: string) => {
+    if (!isValidId(sessionId)) return null
+    const rec = await sessionStore.load(sessionId)
+    if (!rec) return null
+    return detectRepo(rec.meta.cwd)
+  })
+  handle('github:createPr', async (_e, sessionId: string, draft: GitHubPrDraft) => {
+    assertId(sessionId, 'sessionId')
+    const rec = await sessionStore.load(sessionId)
+    if (!rec) return { ok: false, error: 'Session not found' }
+    const title = String(draft?.title ?? '').trim()
+    if (!title) return { ok: false, error: 'Title required' }
+    const result = await createPullRequest(rec.meta.cwd, {
+      title,
+      body: draft?.body,
+      base: draft?.base,
+      head: draft?.head,
+      draft: draft?.draft
+    })
+    if (settings.auditLogEnabled) {
+      appendAudit('agent', result.ok ? `PR created: ${result.pr?.url}` : `PR failed: ${result.error}`, {
+        sessionId
+      })
+    }
+    return result
+  })
+  handle('github:openPr', (_e, url: string) => {
+    try {
+      const u = new URL(String(url ?? ''))
+      if (u.protocol === 'https:' && /(^|\.)github\.com$/i.test(u.hostname)) {
+        return shell.openExternal(u.toString())
+      }
+    } catch {
+      /* ignore */
+    }
+    return undefined
+  })
+
+  // ---- crash / diagnostics
+  handle('crash:list', () => {
+    const dir = path.join(app.getPath('userData'), 'Crashpad', 'completed')
+    try {
+      return fs
+        .readdirSync(dir)
+        .filter((f) => f.endsWith('.dmp'))
+        .slice(0, 50)
+        .map((f) => {
+          const p = path.join(dir, f)
+          const st = fs.statSync(p)
+          return { id: f, ts: st.mtimeMs, path: p, version: app.getVersion() }
+        })
+        .sort((a, b) => b.ts - a.ts)
+    } catch {
+      return []
+    }
+  })
+  handle('crash:reveal', () => shell.openPath(logsDirectory()))
+  handle('crash:copyDiagnostics', async () => {
+    const win = getWindow()
+    if (!win) return { ok: false, error: 'No window' }
+    const res = await dialog.showSaveDialog(win, {
+      defaultPath: `grok-harness-diagnostics-${app.getVersion()}.md`,
+      filters: [{ name: 'Markdown', extensions: ['md'] }]
+    })
+    if (res.canceled || !res.filePath) return { ok: false, error: 'Cancelled' }
+    const lines = [
+      `# Grok Harness diagnostics`,
+      ``,
+      `- Version: ${app.getVersion()}`,
+      `- Platform: ${process.platform} ${process.arch}`,
+      `- Electron: ${process.versions.electron}`,
+      `- Date: ${new Date().toISOString()}`,
+      `- Logs: ${logsDir()}`,
+      ``,
+      `## Recent audit`,
+      exportAuditMarkdown().split('\n').slice(0, 40).join('\n')
+    ]
+    fs.writeFileSync(res.filePath, lines.join('\n'), 'utf8')
+    return { ok: true, path: res.filePath }
+  })
+
+  // ---- MCP catalog
+  handle('mcpCatalog:list', () => MCP_CATALOG)
+
+  // ---- offline / auth status
+  handle('status:get', async (): Promise<OfflineStatus> => {
+    const auth = authManager.getState()
+    return {
+      online: true,
+      authOk: !!auth.method,
+      message: auth.method ? undefined : 'Not signed in',
+      checkedAt: Date.now()
+    }
+  })
+  handle('status:probe', async (): Promise<OfflineStatus> => {
+    try {
+      const r = await probeAccess()
+      return {
+        online: r.ok || r.status !== 0,
+        authOk: r.ok,
+        message: r.ok ? undefined : r.message,
+        checkedAt: Date.now()
+      }
+    } catch (err) {
+      return {
+        online: false,
+        authOk: false,
+        message: err instanceof Error ? err.message : String(err),
+        checkedAt: Date.now()
+      }
+    }
   })
 }

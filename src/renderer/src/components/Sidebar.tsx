@@ -34,6 +34,7 @@ export default function Sidebar(props: {
   onHome: () => void
   onDelete: (id: string) => void
   onOpenSettings: () => void
+  onSearchSessions?: () => void
 }): JSX.Element {
   const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
@@ -102,8 +103,12 @@ export default function Sidebar(props: {
         <div className="sidebar-header-actions">
           <button
             className="icon-btn"
-            title="Search sessions (⌘K)"
+            title="Search sessions (⌘K / ⇧⌘F)"
             onClick={() => {
+              if (props.onSearchSessions) {
+                props.onSearchSessions()
+                return
+              }
               setSearchOpen((v) => !v)
               setTimeout(() => searchRef.current?.focus(), 0)
             }}

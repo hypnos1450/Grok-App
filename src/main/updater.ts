@@ -120,8 +120,34 @@ export function initUpdater(getWindow: () => BrowserWindow | null): void {
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
   autoUpdater.logger = log as unknown as typeof autoUpdater.logger
+  // Channel: 'latest' (stable) or 'beta' — matches electron-builder publish.
+  try {
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json')
+    if (fs.existsSync(settingsPath)) {
+      const s = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) as { updateChannel?: string; autoUpdate?: boolean }
+      if (s.updateChannel === 'beta' || s.updateChannel === 'latest') {
+        autoUpdater.channel = s.updateChannel
+        autoUpdater.allowPrerelease = s.updateChannel === 'beta'
+      }
+      if (s.autoUpdate === false) {
+        // Still allow manual check; just skip the interval below via flag.
+      }
+    }
+  } catch {
+    /* ignore */
+  }
 
   let downloadedVersion: string | null = null
+  let autoCheck = true
+  try {
+    const settingsPath = path.join(app.getPath('userData'), 'settings.json')
+    if (fs.existsSync(settingsPath)) {
+      const s = JSON.parse(fs.readFileSync(settingsPath, 'utf8')) as { autoUpdate?: boolean }
+      if (s.autoUpdate === false) autoCheck = false
+    }
+  } catch {
+    /* ignore */
+  }
 
   const senderOk = (e: Electron.IpcMainInvokeEvent): boolean => {
     const win = getWindow()
@@ -208,6 +234,15 @@ export function initUpdater(getWindow: () => BrowserWindow | null): void {
     return { ok: true }
   })
 
+  handle('update:getChannel', () => autoUpdater.channel || 'latest')
+  handle('update:setChannel', (_e, channel: unknown) => {
+    const ch = channel === 'beta' ? 'beta' : 'latest'
+    autoUpdater.channel = ch
+    autoUpdater.allowPrerelease = ch === 'beta'
+    log.info('update channel set to', ch)
+    return ch
+  })
+
   if (!app.isPackaged) {
     log.info('dev build — skipping update checks')
     return
@@ -216,6 +251,8 @@ export function initUpdater(getWindow: () => BrowserWindow | null): void {
   const check = (): void => {
     autoUpdater.checkForUpdates().catch((err) => log.warn('check failed', err?.message ?? err))
   }
-  setTimeout(check, 8000)
-  setInterval(check, 60 * 60 * 1000)
+  if (autoCheck) {
+    setTimeout(check, 8000)
+    setInterval(check, 60 * 60 * 1000)
+  }
 }

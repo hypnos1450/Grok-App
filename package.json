@@ -1,7 +1,7 @@
 {
   "name": "grok-harness",
   "productName": "Grok Harness",
-  "version": "0.4.8",
+  "version": "0.5.0",
   "description": "Desktop agent harness for xAI Grok 4.5 and Grok 4.3, with xAI subscription OAuth",
   "main": "out/main/index.js",
   "author": {

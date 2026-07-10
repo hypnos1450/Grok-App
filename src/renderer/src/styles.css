@@ -2430,3 +2430,184 @@ button svg {
 .mcp-manual[open] summary {
   margin-bottom: 10px;
 }
+
+/* ---- command palette / session search ---- */
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: 12vh;
+  z-index: 1000;
+}
+.palette {
+  width: min(560px, 92vw);
+  background: var(--bg-elevated, #1c1c1f);
+  border: 1px solid var(--border, #2a2a2e);
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+.palette-input {
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid var(--border, #2a2a2e);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  padding: 14px 16px;
+  outline: none;
+}
+.palette-list {
+  max-height: 360px;
+  overflow: auto;
+  padding: 6px;
+}
+.palette-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 10px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.palette-item:hover,
+.palette-item.active {
+  background: var(--bg-hover, #2a2a30);
+}
+.palette-label {
+  font-weight: 500;
+}
+.palette-meta {
+  font-size: 12px;
+  opacity: 0.65;
+}
+.palette-meta.muted {
+  opacity: 0.45;
+  font-size: 11px;
+}
+.palette-empty {
+  padding: 16px;
+  opacity: 0.6;
+  text-align: center;
+}
+
+/* ---- status / trust banners ---- */
+.status-banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border, #2a2a2e);
+  font-size: 13px;
+}
+.status-banner.warn {
+  background: rgba(234, 179, 8, 0.12);
+}
+.status-banner.trust {
+  background: rgba(59, 130, 246, 0.12);
+}
+.status-banner code {
+  font-size: 12px;
+  opacity: 0.85;
+}
+
+/* ---- plan toggle / review ---- */
+.composer-chip.plan-toggle.on {
+  background: rgba(59, 130, 246, 0.25);
+  color: #93c5fd;
+}
+.review-list {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.review-heading {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  opacity: 0.55;
+  margin: 6px 0 2px;
+}
+.review-file {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 6px 8px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.review-file:hover {
+  background: var(--bg-hover, #2a2a30);
+}
+
+/* ---- security / audit / mcp catalog ---- */
+.audit-list {
+  max-height: 220px;
+  overflow: auto;
+  border: 1px solid var(--border, #2a2a2e);
+  border-radius: 8px;
+  padding: 6px;
+}
+.audit-row {
+  display: grid;
+  grid-template-columns: 72px 1fr auto;
+  gap: 8px;
+  font-size: 12px;
+  padding: 4px 2px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.audit-kind {
+  opacity: 0.7;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+.audit-ts {
+  opacity: 0.45;
+  white-space: nowrap;
+}
+.mcp-catalog-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.text-input {
+  width: 100%;
+  border: 1px solid var(--border, #2a2a2e);
+  background: var(--bg, #111113);
+  color: inherit;
+  border-radius: 8px;
+  padding: 8px 10px;
+  font: inherit;
+}
+
+/* reduced motion */
+html[data-reduced-motion='1'] *,
+html[data-reduced-motion='1'] *::before,
+html[data-reduced-motion='1'] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
+}

@@ -11,9 +11,9 @@ import { ChatItem, FileEntry, FilePreview, PlanStep, SessionMeta, ToolStatus } f
 import { ExpandIcon, RefreshIcon, ShrinkIcon, XIcon } from './Icons'
 import TerminalPanel from './TerminalPanel'
 
-type PanelId = 'preview' | 'files' | 'tasks' | 'term'
+type PanelId = 'preview' | 'files' | 'tasks' | 'review' | 'term'
 
-const STACK_ORDER: PanelId[] = ['preview', 'files', 'tasks']
+const STACK_ORDER: PanelId[] = ['preview', 'files', 'tasks', 'review']
 const STORE_KEY = 'dock-open-panels'
 
 const ICONS: Record<PanelId, JSX.Element> = {
@@ -36,6 +36,12 @@ const ICONS: Record<PanelId, JSX.Element> = {
       <path d="M8 4.7h6M8 9.2h6M8 13.7h6" />
     </svg>
   ),
+  review: (
+    <svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <path d="M3 3.5h10v9H3z" />
+      <path d="M5 6.5h6M5 9h4" />
+    </svg>
+  ),
   term: (
     <svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.4">
       <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
@@ -48,6 +54,7 @@ const TITLES: Record<PanelId, string> = {
   preview: 'Preview',
   files: 'Files',
   tasks: 'Tasks',
+  review: 'Review',
   term: 'Terminal'
 }
 
@@ -328,17 +335,91 @@ function TasksPanel(props: { sessionId: string }): JSX.Element {
   )
 }
 
+function ReviewPanel(props: {
+  sessionId: string
+  refreshKey: number
+  onOpenFile: (rel: string) => void
+}): JSX.Element {
+  const [files, setFiles] = useState<{ path: string; kind: 'write' | 'edit' }[]>([])
+  const [plan, setPlan] = useState<PlanStep[]>([])
+
+  useEffect(() => {
+    void window.harness.sessions.turnChanges(props.sessionId).then((c) => {
+      setFiles(c?.files ?? [])
+      setPlan(c?.plan ?? [])
+    })
+  }, [props.sessionId, props.refreshKey])
+
+  useEffect(() => {
+    return window.harness.agent.onEvent((ev) => {
+      if (!('sessionId' in ev) || ev.sessionId !== props.sessionId) return
+      if (ev.type === 'turn-end' || ev.type === 'plan') {
+        void window.harness.sessions.turnChanges(props.sessionId).then((c) => {
+          setFiles(c?.files ?? [])
+          setPlan(c?.plan ?? [])
+        })
+      }
+    })
+  }, [props.sessionId])
+
+  if (!files.length && !plan.length) {
+    return (
+      <div className="dock-empty">
+        Files the agent edits this turn appear here for review. Open a file to preview the result.
+      </div>
+    )
+  }
+
+  return (
+    <div className="review-list">
+      {plan.length > 0 && (
+        <div className="plan-list">
+          <div className="review-heading">Plan</div>
+          {plan.map((s, i) => (
+            <div key={i} className={`plan-step ${s.status}`}>
+              <span className="plan-mark">
+                {s.status === 'done' ? '✓' : s.status === 'active' ? '●' : '○'}
+              </span>
+              <span className="plan-title">{s.title}</span>
+            </div>
+          ))}
+        </div>
+      )}
+      {files.length > 0 && (
+        <>
+          <div className="review-heading">Changed files</div>
+          {files.map((f, i) => (
+            <button
+              key={`${f.path}-${i}`}
+              type="button"
+              className="review-file"
+              title={f.path}
+              onClick={() => props.onOpenFile(f.path)}
+            >
+              <span className="task-name">{f.kind}</span>
+              <span className="task-detail">{f.path}</span>
+            </button>
+          ))}
+        </>
+      )}
+    </div>
+  )
+}
+
 // -------------------------------------------------------------------- dock
 
 export default function RightDock({
   session,
   onSendToChat,
-  forceOpenTerm
+  forceOpenTerm,
+  forceOpenReview
 }: {
   session: SessionMeta | null
   onSendToChat?: (text: string) => void
   /** Increment to force-open the terminal panel (e.g. pin from agent) */
   forceOpenTerm?: number
+  /** Increment to force-open the review panel after a turn */
+  forceOpenReview?: number
 }): JSX.Element | null {
   const [open, setOpen] = useState<PanelId[]>(() => {
     try {
@@ -398,6 +479,13 @@ export default function RightDock({
     setOpen((prev) => (prev.includes('term') ? prev : [...prev, 'term']))
   }, [forceOpenTerm])
 
+  // force-open review after agent turns
+  useEffect(() => {
+    if (!forceOpenReview) return
+    setOpen((prev) => (prev.includes('review') ? prev : [...prev, 'review']))
+    setFilesRefresh((n) => n + 1)
+  }, [forceOpenReview])
+
   if (!session) return null
 
   const openFile = (rel: string): void => {
@@ -416,7 +504,7 @@ export default function RightDock({
       id={id}
       expanded={expanded === id}
       actions={
-        id === 'files' ? (
+        id === 'files' || id === 'review' ? (
           <button className="icon-btn" title="Refresh" onClick={() => setFilesRefresh((n) => n + 1)}>
             <RefreshIcon size={14} />
           </button>
@@ -431,6 +519,8 @@ export default function RightDock({
         <FilesPanel sessionId={session.id} refreshKey={filesRefresh} onOpenFile={openFile} />
       ) : id === 'tasks' ? (
         <TasksPanel sessionId={session.id} />
+      ) : id === 'review' ? (
+        <ReviewPanel sessionId={session.id} refreshKey={filesRefresh} onOpenFile={openFile} />
       ) : (
         <TerminalPanel
           sessionId={session.id}
@@ -447,7 +537,7 @@ export default function RightDock({
       {visibleStack.length > 0 && <div className="dock-col">{visibleStack.map(renderPanel)}</div>}
       {termOpen && <div className={`dock-col${expanded === 'term' ? ' wide' : ''}`}>{renderPanel('term')}</div>}
       <div className="dock-rail">
-        {(['preview', 'files', 'tasks', 'term'] as PanelId[]).map((id) => (
+        {(['preview', 'files', 'tasks', 'review', 'term'] as PanelId[]).map((id) => (
           <button
             key={id}
             className={`rail-btn${open.includes(id) ? ' active' : ''}`}

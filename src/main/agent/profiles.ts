@@ -36,6 +36,12 @@ export interface SystemPromptOpts {
   projectDoc?: string
   /** Git branch/dirty summary for the workspace, if a repo */
   gitBranch?: string
+  /** Lightweight repo tree map (frozen per session) */
+  repoMap?: string
+  /** Plan-only: propose, don't mutate */
+  planOnly?: boolean
+  /** Hint for post-edit verification command */
+  testCommand?: string
 }
 
 // Shared harness contract. Kept identical and FIRST across both models so the
@@ -131,8 +137,15 @@ const GROK_BUILD_ADDENDUM = `# Model guidance (Grok Build — Grok 4.5)
 - One concern per edit_file call. Batch independent reads in parallel, but apply mutations sequentially so failures are attributable.
 - If a task turns out to be deeper than it looked (architectural change, ambiguous requirements), pause and present the decision to the user rather than churning.`
 
+const PLAN_ONLY_GUIDANCE = `# Plan-only mode
+The user enabled plan-only mode for this session.
+- You may read files, search, and publish a plan with update_plan.
+- Do NOT write/edit files, run shell commands that change state, or call MCP tools that mutate anything.
+- If the user asks you to implement, produce a clear plan and ask them to turn off plan-only (or switch profile) to execute.`
+
 function assemble(core: string[], opts: SystemPromptOpts): string {
   const parts = [...core]
+  if (opts.planOnly) parts.push(PLAN_ONLY_GUIDANCE)
   if (opts.memoryEnabled) {
     parts.push(MEMORY_GUIDANCE)
     if (opts.memorySnapshot) parts.push(opts.memorySnapshot)
@@ -140,6 +153,12 @@ function assemble(core: string[], opts: SystemPromptOpts): string {
   }
   if (opts.projectDoc) {
     parts.push(`# Project instructions (from the repo)\n${opts.projectDoc}`)
+  }
+  if (opts.repoMap) parts.push(opts.repoMap)
+  if (opts.testCommand?.trim()) {
+    parts.push(
+      `# Verification\nAfter edits, prefer running: \`${opts.testCommand.trim()}\` (user-configured test command).`
+    )
   }
   parts.push(workspaceBlock(opts))
   return parts.join('\n\n')

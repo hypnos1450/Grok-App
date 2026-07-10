@@ -2,10 +2,12 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   AgentEvent,
   Attachments,
+  GitHubPrDraft,
   HarnessApi,
   ModelId,
   Settings,
   TermData,
+  UpdateChannel,
   UpdateInfo
 } from '@shared/types'
 
@@ -29,7 +31,10 @@ const api: HarnessApi = {
       ipcRenderer.invoke('sessions:restoreCheckpoint', sessionId, itemId),
     fork: (sessionId, itemId) => ipcRenderer.invoke('sessions:fork', sessionId, itemId),
     export: (sessionId) => ipcRenderer.invoke('sessions:export', sessionId),
-    gitStatus: (sessionId) => ipcRenderer.invoke('sessions:gitStatus', sessionId)
+    gitStatus: (sessionId) => ipcRenderer.invoke('sessions:gitStatus', sessionId),
+    search: (query, limit) => ipcRenderer.invoke('sessions:search', query, limit),
+    setPlanOnly: (id, planOnly) => ipcRenderer.invoke('sessions:setPlanOnly', id, planOnly),
+    turnChanges: (sessionId) => ipcRenderer.invoke('sessions:turnChanges', sessionId)
   },
   agent: {
     send: (sessionId, text, attachments?: Attachments) =>
@@ -119,6 +124,8 @@ const api: HarnessApi = {
   update: {
     check: () => ipcRenderer.invoke('update:check'),
     install: () => ipcRenderer.invoke('update:install'),
+    getChannel: () => ipcRenderer.invoke('update:getChannel'),
+    setChannel: (channel: UpdateChannel) => ipcRenderer.invoke('update:setChannel', channel),
     onAvailable: (cb: (info: UpdateInfo) => void) => {
       const l = (_e: Electron.IpcRendererEvent, info: UpdateInfo): void => cb(info)
       ipcRenderer.on('update:available', l)
@@ -130,12 +137,42 @@ const api: HarnessApi = {
       return () => ipcRenderer.removeListener('update:downloaded', l)
     }
   },
+  workspace: {
+    getTrust: (cwd) => ipcRenderer.invoke('workspace:getTrust', cwd),
+    setTrust: (cwd, level) => ipcRenderer.invoke('workspace:setTrust', cwd, level),
+    listTrusted: () => ipcRenderer.invoke('workspace:listTrusted')
+  },
+  audit: {
+    list: (limit) => ipcRenderer.invoke('audit:list', limit),
+    clear: () => ipcRenderer.invoke('audit:clear'),
+    export: () => ipcRenderer.invoke('audit:export')
+  },
+  palette: {
+    list: () => ipcRenderer.invoke('palette:list')
+  },
+  github: {
+    repo: (sessionId) => ipcRenderer.invoke('github:repo', sessionId),
+    createPr: (sessionId, draft: GitHubPrDraft) =>
+      ipcRenderer.invoke('github:createPr', sessionId, draft),
+    openPr: (url) => ipcRenderer.invoke('github:openPr', url)
+  },
+  crash: {
+    list: () => ipcRenderer.invoke('crash:list'),
+    reveal: () => ipcRenderer.invoke('crash:reveal'),
+    copyDiagnostics: () => ipcRenderer.invoke('crash:copyDiagnostics')
+  },
+  mcpCatalog: {
+    list: () => ipcRenderer.invoke('mcpCatalog:list')
+  },
+  status: {
+    get: () => ipcRenderer.invoke('status:get'),
+    probe: () => ipcRenderer.invoke('status:probe')
+  },
   onMenuAction: (cb: (action: string) => void) => {
     const l = (_e: Electron.IpcRendererEvent, action: string): void => cb(action)
     ipcRenderer.on('menu:action', l)
     return () => ipcRenderer.removeListener('menu:action', l)
   },
-  /** Absolute filesystem path of a dropped/selected File (sandbox-safe) */
   pathForFile: (file: File) => {
     try {
       return webUtils.getPathForFile(file)
@@ -144,6 +181,7 @@ const api: HarnessApi = {
     }
   },
   platform: process.platform,
+  getVersion: () => ipcRenderer.invoke('app:version'),
   revealLogs: () => ipcRenderer.invoke('revealLogs'),
   pickFolder: () => ipcRenderer.invoke('pickFolder'),
   openExternal: (url: string) => ipcRenderer.invoke('openExternal', url)

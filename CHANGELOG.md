@@ -4,6 +4,24 @@ All notable changes to Grok Harness. Each release on GitHub carries the notes
 from its section here — the release workflow extracts them automatically when a
 version tag is pushed.
 
+## 0.5.0 — 2026-07-10
+
+**Major product + agent upgrade**
+
+- **Plan-only mode** (session toggle + permission mode): read/plan tools only; no writes/shell/MCP
+- **Agent profiles**: careful / balanced / yolo map to permission defaults
+- **Test-after-edit**: post-write verification hints + optional test command
+- **Multi-model routing**: lighter model for titles, compaction, background review
+- **Repo map**: frozen top-level tree injected into the system prompt
+- **Workspace trust**: first-open gate before agent tools (banner + Settings → Security)
+- **Security center**: audit log, allowlist clear, trusted workspaces
+- **Command palette** (⇧⌘O) and **session search** (⇧⌘F) across titles/digests/messages
+- **Review dock panel**: files changed this turn + plan checklist
+- **GitHub PR** via `gh` CLI (composer chip + menu)
+- **MCP catalog** one-click installs (still confirm)
+- **Update channel** stable/beta; offline/auth status banner; diagnostics export
+- **Reduced motion** setting; richer Home/Sidebar search entry points
+
 ## 0.4.8 — 2026-07-10
 
 **Security hardening**
