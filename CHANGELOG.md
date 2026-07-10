@@ -4,6 +4,14 @@ All notable changes to Grok Harness. Each release on GitHub carries the notes
 from its section here — the release workflow extracts them automatically when a
 version tag is pushed.
 
+## 0.4.6 — 2026-07-10
+
+**Mac “Restart to update” fix**
+
+- Force-quit path for `quitAndInstall` on macOS (destroy windows, `isForceRunAfter`, fall back to `app.exit`)
+- Only show **Restart to update** after the package is fully downloaded; show a downloading state before that
+- Quit the app when the last window closes during an update install (macOS normally stays alive)
+
 ## 0.4.5 — 2026-07-10
 
 **Windows release runner pin**

@@ -177,10 +177,26 @@ export default function App(): JSX.Element {
       <div className="main">
         {update && (
           <div className="update-banner">
-            <span>Grok Harness {update.version} is ready.</span>
-            <button className="btn primary" onClick={() => void window.harness.update.install()}>
-              Restart to update
-            </button>
+            <span>
+              {update.ready
+                ? `Grok Harness ${update.version} is ready.`
+                : `Downloading Grok Harness ${update.version}…`}
+            </span>
+            {update.ready && (
+              <button
+                className="btn primary"
+                onClick={() => {
+                  void window.harness.update.install().then((res) => {
+                    if (res && 'ok' in res && !res.ok) {
+                      // Still downloading or install path failed — keep banner.
+                      console.warn('update install:', res.error)
+                    }
+                  })
+                }}
+              >
+                Restart to update
+              </button>
+            )}
             <button className="icon-btn" title="Dismiss update notice" onClick={() => setUpdate(null)}>
               <XIcon size={14} />
             </button>

@@ -2,7 +2,7 @@ import { BrowserWindow, app, session as electronSession, shell } from 'electron'
 import path from 'node:path'
 import { initLogging, logger } from './logger'
 import { buildMenu } from './menu'
-import { initUpdater } from './updater'
+import { initUpdater, isInstallingUpdate } from './updater'
 import { registerIpc } from './ipc'
 import { termManager } from './panels'
 import { sessionStore } from './sessions'
@@ -136,7 +136,9 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  // macOS normally keeps the app alive with no windows; during an update
+  // install we must quit so electron-updater can replace the app bundle.
+  if (process.platform !== 'darwin' || isInstallingUpdate) app.quit()
 })
 
 // Don't leave terminal-panel processes running after the app exits.

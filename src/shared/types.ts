@@ -296,6 +296,8 @@ export interface SessionData {
 export interface UpdateInfo {
   version: string
   notes?: string
+  /** True once the package is fully downloaded and ready to install */
+  ready?: boolean
 }
 
 export interface McpServerStatus {
@@ -524,7 +526,7 @@ export interface HarnessApi {
   }
   update: {
     check(): Promise<{ ok: boolean; version?: string; error?: string }>
-    install(): Promise<void>
+    install(): Promise<{ ok: boolean; error?: string } | void>
     onAvailable(cb: (info: UpdateInfo) => void): () => void
     onDownloaded(cb: (info: UpdateInfo) => void): () => void
   }
