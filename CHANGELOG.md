@@ -4,6 +4,36 @@ All notable changes to Conduit. Each release on GitHub carries the notes
 from its section here — the release workflow extracts them automatically when a
 version tag is pushed.
 
+## 0.5.4 — 2026-07-16
+
+**Grok 4.5 tuning, MCP in packaged builds, and history recall**
+
+- **Fixed: MCP servers never started in installed builds** (`spawn npx ENOENT`). GUI-launched
+  apps inherit a minimal PATH (`/usr/bin:/bin:/usr/sbin:/sbin`), not your shell's, so
+  `npx` was invisible — it only worked in dev, which inherits the terminal. The login
+  shell's PATH is now resolved at startup, before MCP connects. (The bash tool was never
+  affected: it goes through `zsh -lc`.)
+- **`prompt_cache_key` per session**: pins a conversation to one cache server so the shared
+  system-prompt prefix bills cached ($0.50/M) instead of full ($2.00/M). The prompt was
+  already built cache-friendly; without this key it often landed cache-cold anyway.
+- **`recall_history(query)`**: searches the current session's full transcript — including
+  turns compacted out of context — over message text *and* tool output. Compaction never
+  deleted anything (it only trims the model's working context); this is the read path back.
+  Complements `session_search`, which covers other sessions.
+- **Compact below the long-context threshold**: every xAI model doubles input pricing past
+  200K tokens. Both profiles now compact at 180K (90% of it) instead of 375K/750K, keeping
+  long sessions on the cheap tier. Compaction runs more often; `recall_history` covers what
+  it drops.
+- **Compaction now runs at `low` reasoning effort**, like the review and title passes.
+  grok-4.5 defaults to `high` and cannot disable reasoning, so the pass meant to cheaply
+  distill the transcript was reasoning hard over all of it.
+- **`maxOutputTokens` 16,384 → 65,536** for Grok 4.5. xAI enforces no ceiling (the API
+  accepts values past the context window), and reasoning tokens are billed as output and
+  count against this cap — at 16K a high-effort turn could spend the budget thinking and
+  truncate mid-answer.
+- Model menu: **"Grok Build" → "Grok 4.5"**, which is what it has been running
+  (`grok-build-latest` is an alias for `grok-4.5`). Saved sessions are unaffected.
+
 ## 0.5.3 — 2026-07-16
 
 **Auth banner fix + security updates**

@@ -41,7 +41,7 @@ export default function Login({ onAuthed }: { onAuthed: (a: AuthState) => void }
     <div className="login-screen">
       <div className="login-card">
         <div className="login-logo">Conduit</div>
-        <div className="login-sub">An agent workbench for Grok 4.3 and Grok Build</div>
+        <div className="login-sub">An agent workbench for Grok 4.5 and Grok 4.3</div>
 
         <button className="btn primary" onClick={() => void loginOAuth()} disabled={busy}>
           {busy ? 'Waiting for browser sign-in…' : 'Sign in with xAI'}

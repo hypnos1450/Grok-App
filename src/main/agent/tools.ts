@@ -875,9 +875,109 @@ const sessionSearchTool: Tool = {
   }
 }
 
+// Compaction replaces older turns in the model's context with a short summary,
+// but never touches session.items — the full transcript stays on disk. This is
+// the read path back to it: pull-based, so it costs nothing until the model
+// actually needs a detail the summary dropped.
+const recallHistoryTool: Tool = {
+  name: 'recall_history',
+  kind: 'read',
+  def: {
+    type: 'function',
+    function: {
+      name: 'recall_history',
+      description:
+        'Search the full transcript of the CURRENT session, including earlier turns that were compacted out of your context. ' +
+        'When this conversation gets long, older turns are replaced by a short summary — the full text is still saved, and this reads it back. ' +
+        'Use it when you need a specific detail the summary dropped: an exact error message, a file path, a command you already ran and its output, ' +
+        'or what was decided earlier and why. Searches message text and tool output. ' +
+        'For conversations from OTHER days/sessions, use session_search instead.',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: { type: 'string', description: 'Text to search for (case-insensitive)' },
+          limit: { type: 'number', description: 'Max matches to return (default 20, max 50)' }
+        },
+        required: ['query']
+      }
+    }
+  },
+  summarize: (input) => `Recall from this session: ${input.query}`,
+  run: async (input, ctx) => {
+    const query = String(input.query ?? '').trim().toLowerCase()
+    if (!query) return { ok: false, output: 'query is required' }
+    const limit = Math.min(Math.max(Math.trunc(Number(input.limit)) || 20, 1), 50)
+    const rec = await sessionStore.load(ctx.sessionId)
+    if (!rec) return { ok: false, output: 'This session could not be read.' }
+
+    // Anything before the last compaction is what is no longer in context —
+    // worth flagging so the model can tell recovery from redundancy.
+    let lastCompaction = -1
+    rec.items.forEach((it, i) => {
+      if (it.kind === 'compaction') lastCompaction = i
+    })
+
+    const matches: string[] = []
+    for (let i = 0; i < rec.items.length && matches.length < limit; i++) {
+      const item = rec.items[i]
+      let label: string
+      let text: string
+      switch (item.kind) {
+        case 'user':
+          label = 'user'
+          text = item.text
+          break
+        case 'assistant':
+          label = 'assistant'
+          text = item.text
+          break
+        case 'tool':
+          label = `tool ${item.name} (${item.status})`
+          text = `${JSON.stringify(item.input)}\n${item.output ?? ''}`
+          break
+        case 'compaction':
+          label = 'compaction summary'
+          text = item.summary
+          break
+        case 'error':
+          label = 'error'
+          text = item.message
+          break
+        case 'note':
+          label = 'note'
+          text = item.text
+          break
+        default:
+          continue
+      }
+      const idx = text.toLowerCase().indexOf(query)
+      if (idx < 0) continue
+      const snippet = text
+        .slice(Math.max(0, idx - 120), idx + query.length + 280)
+        .replace(/\s+/g, ' ')
+        .trim()
+      // Local time, matching the clock the user sees in the transcript.
+      const when = new Date(item.ts).toTimeString().slice(0, 5)
+      const where = i <= lastCompaction ? 'compacted out of context' : 'still in context'
+      matches.push(`#${i} [${when}] ${label} — ${where}:\n…${snippet}…`)
+    }
+
+    if (!matches.length) {
+      return {
+        ok: true,
+        output:
+          `No match for "${input.query}" in this session's transcript` +
+          (lastCompaction === -1 ? ' (nothing has been compacted yet — it is all still in your context).' : '.')
+      }
+    }
+    return { ok: true, output: clamp(matches.join('\n\n')) }
+  }
+}
+
 export const TOOLS: Tool[] = [
   bashTool, readFileTool, writeFileTool, editFileTool, listDirTool, globTool, grepTool,
-  fetchPageTool, updatePlanTool, memoryTool, skillTool, sessionSearchTool, spawnAgentTool
+  fetchPageTool, updatePlanTool, memoryTool, skillTool, sessionSearchTool, recallHistoryTool,
+  spawnAgentTool
 ]
 
 export const toolByName = new Map(TOOLS.map((t) => [t.name, t]))

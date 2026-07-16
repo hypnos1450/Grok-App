@@ -1,6 +1,7 @@
 import { BrowserWindow, app, session as electronSession, shell } from 'electron'
 import path from 'node:path'
 import { initLogging, logger } from './logger'
+import { fixPath } from './shell-path'
 import { buildMenu } from './menu'
 import { initUpdater, isInstallingUpdate } from './updater'
 import { registerIpc } from './ipc'
@@ -87,8 +88,12 @@ if (!app.requestSingleInstanceLock()) {
     }
   })
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
     initLogging()
+
+    // Must precede registerIpc: that kicks off the MCP sync, which spawns
+    // servers directly (no shell) and so needs the user's real PATH.
+    await fixPath()
 
     // Deny all renderer permission requests (camera, geolocation, etc.) — the
     // app needs none of them.

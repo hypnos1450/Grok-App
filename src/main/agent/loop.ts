@@ -182,6 +182,9 @@ export class AgentRun {
           reasoningEffort: profile.supportsReasoningEffort
             ? this.session.meta.reasoningEffort
             : undefined,
+          // Every turn in a session shares the same system-prompt prefix; pin
+          // them to one cache server so that prefix bills at the cached rate.
+          cacheKey: this.session.meta.id,
           signal: this.abort.signal,
           handlers: {
             onTextDelta: (text) => {
@@ -726,6 +729,10 @@ export class AgentRun {
       ],
       maxOutputTokens: 4000,
       temperature: 0,
+      // Summarizing doesn't need deep reasoning, and grok-4.5 defaults to high
+      // effort — without this the compaction pass reasons hard over the whole
+      // transcript it is trying to cheaply distill.
+      reasoningEffort: compactProfile.supportsReasoningEffort ? 'low' : undefined,
       signal: this.abort.signal
     })
 
@@ -733,7 +740,11 @@ export class AgentRun {
     this.session.apiMessages = [
       {
         role: 'user',
-        content: `[Context was compacted. Summary of the session so far:]\n\n${summary}`
+        content:
+          `[Context was compacted. Summary of the session so far:]\n\n${summary}\n\n` +
+          `[The full transcript of these earlier turns is still saved. If you need a detail this ` +
+          `summary left out — an exact error, a path, a command's output, why something was decided — ` +
+          `search it with recall_history(query) rather than asking the user to repeat it.]`
       },
       ...kept
     ]

@@ -4,9 +4,11 @@ export type ModelId = 'grok-4.3' | 'grok-build-0.1'
 
 export const MODELS: { id: ModelId; label: string; blurb: string; effort?: boolean }[] = [
   {
+    // id stays grok-build-0.1 so saved sessions keep resolving to this profile;
+    // it runs grok-4.5 on the wire (see PROFILES).
     id: 'grok-build-0.1',
-    label: 'Grok Build',
-    blurb: 'Grok 4.5 · agentic coding · 500K context',
+    label: 'Grok 4.5',
+    blurb: 'Agentic coding · 500K context',
     effort: true
   },
   { id: 'grok-4.3', label: 'Grok 4.3', blurb: 'Flagship reasoning · 1M context' }

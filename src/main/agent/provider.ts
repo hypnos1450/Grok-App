@@ -120,6 +120,8 @@ export async function streamCompletion(opts: {
   temperature?: number
   /** Responses API reasoning depth (grok-4.5+); omit for the API default */
   reasoningEffort?: 'low' | 'medium' | 'high'
+  /** Pins the conversation to one cache server so the prompt prefix hits warm */
+  cacheKey?: string
   signal?: AbortSignal
   handlers?: StreamHandlers
 }): Promise<CompletionResult> {
@@ -210,6 +212,12 @@ async function streamOnce(opts: {
   temperature?: number
   /** Responses API reasoning depth (grok-4.5+); omit for the API default */
   reasoningEffort?: 'low' | 'medium' | 'high'
+  /**
+   * Routes a conversation's requests to the same cache server. Without it the
+   * shared prompt prefix often lands cache-cold and bills at full input price
+   * (grok-4.5: $2.00/M vs $0.50/M cached). Stable per conversation.
+   */
+  cacheKey?: string
   signal?: AbortSignal
   handlers?: StreamHandlers
 }): Promise<CompletionResult> {
@@ -233,6 +241,7 @@ async function streamOnce(opts: {
   if (opts.maxOutputTokens) body.max_output_tokens = opts.maxOutputTokens
   if (typeof opts.temperature === 'number') body.temperature = opts.temperature
   if (opts.reasoningEffort) body.reasoning = { effort: opts.reasoningEffort }
+  if (opts.cacheKey) body.prompt_cache_key = opts.cacheKey
 
   const res = await fetch(url, {
     method: 'POST',

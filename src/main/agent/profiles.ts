@@ -170,7 +170,11 @@ export const PROFILES: Record<ModelId, ModelProfile> = {
     apiModel: 'grok-4.3',
     contextWindow: 1_000_000,
     maxOutputTokens: 16_384,
-    compactAt: 0.75,
+    // 0.18 * 1M = 180K, i.e. 90% of the same 200K long_context_threshold every
+    // xAI model shares. This deliberately trades 4.3's 1M window for the cheap
+    // pricing tier ($1.25 vs $2.50/M input): past 200K every later turn pays
+    // double on the whole prompt. recall_history reads back anything compacted.
+    compactAt: 0.18,
     temperature: 0.2,
     maxTurns: 60,
     systemPrompt: (opts) => assemble([HARNESS_CORE, GROK_43_ADDENDUM], opts)
@@ -183,8 +187,18 @@ export const PROFILES: Record<ModelId, ModelProfile> = {
     apiModel: 'grok-4.5',
     supportsReasoningEffort: true,
     contextWindow: 500_000,
-    maxOutputTokens: 16_384,
-    compactAt: 0.75,
+    // xAI enforces no ceiling here (the API accepts values past the context
+    // window), so this is our own truncation guard, not a model limit. Reasoning
+    // tokens are billed as output and count against it, and 4.5 always reasons
+    // — at 16K a high-effort turn could spend the whole budget thinking and get
+    // cut off mid-answer. Raised to leave room for reasoning + a large edit;
+    // it is a cap, not a target, so unused headroom costs nothing.
+    maxOutputTokens: 65_536,
+    // 0.36 * 500K = 180K, i.e. 90% of xAI's 200K long_context_threshold. Past
+    // that threshold input pricing doubles ($2.00 -> $4.00/M, cached $0.50 ->
+    // $1.00/M), so compacting just under it keeps a long session on the cheap
+    // tier. The old 0.75 (375K) sat well inside the doubled band.
+    compactAt: 0.36,
     temperature: 0.1,
     maxTurns: 80,
     systemPrompt: (opts) => assemble([HARNESS_CORE, GROK_BUILD_ADDENDUM], opts)
