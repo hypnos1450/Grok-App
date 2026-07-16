@@ -81,11 +81,15 @@ const MAX_ATTEMPTS = 4
  * Cheap post-login check that the current credential can actually reach the
  * API. Catches xAI's known OAuth-allowlist 403, which otherwise only surfaces
  * as a cryptic failure on the user's first real message.
+ *
+ * Probes /models, not /api-key: the latter authenticates xAI API keys only and
+ * answers a valid subscription OAuth bearer with 401, which read as an expired
+ * session and produced a permanent false "sign in again" banner.
  */
 export async function probeAccess(): Promise<{ ok: boolean; status?: number; message?: string }> {
   try {
     const bearer = await authManager.getBearer()
-    const res = await fetch(`${XAI_API_BASE_URL}/api-key`, {
+    const res = await fetch(`${XAI_API_BASE_URL}/models`, {
       headers: { Authorization: `Bearer ${bearer}` }
     })
     if (res.ok || res.status === 404) return { ok: true }

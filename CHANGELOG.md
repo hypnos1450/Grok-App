@@ -4,6 +4,26 @@ All notable changes to Conduit. Each release on GitHub carries the notes
 from its section here — the release workflow extracts them automatically when a
 version tag is pushed.
 
+## 0.5.3 — 2026-07-16
+
+**Auth banner fix + security updates**
+
+- **Fixed: permanent "Your session is not valid. Please sign in again." banner** after a
+  successful OAuth sign-in. The health probe called `/v1/api-key`, which authenticates xAI
+  API keys only and rejects a valid subscription OAuth bearer with 401. It now probes
+  `/v1/models`, which accepts both credential types.
+- **Fixed: stale offline status** — the probe ran before sign-in and never re-ran after it,
+  so a pre-login failure could linger for up to two minutes (and a healthy status could
+  outlive a logout). Probing is now scoped to the signed-in credential.
+- **Fixed: MCP catalog gave no feedback** — every entry showed "Install" even when already
+  installed, and successes and failures were both silent. Entries now show
+  Install / Installing… / Installed, and report errors.
+- **Electron 33 → 43**: Electron 33 is end-of-life and no longer receives security
+  backports. Clears 18 advisories, incl. ASAR integrity bypass (GHSA-vmqv-hx8q-j7mg).
+- **electron-builder 25 → 26**: clears 7 `tar` advisories in the build toolchain
+  (`tar@6` had no patched release; fixes landed in 7.5.16+).
+- `npm audit` now reports 0 vulnerabilities, down from 10 high.
+
 ## 0.5.2 — 2026-07-10
 
 **Full Conduit branding + repo rename**

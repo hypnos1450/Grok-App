@@ -637,6 +637,10 @@ export default function SettingsModal(props: {
   const [updateMsg, setUpdateMsg] = useState<string | null>(null)
   const [audit, setAudit] = useState<import('@shared/types').AuditEvent[]>([])
   const [catalog, setCatalog] = useState<import('@shared/types').McpCatalogEntry[]>([])
+  const [catalogBusy, setCatalogBusy] = useState<string | null>(null)
+  const [catalogMsg, setCatalogMsg] = useState<{ id: string; text: string; err?: boolean } | null>(
+    null
+  )
   const update = async (patch: Partial<Settings>): Promise<void> => {
     props.onChange(await window.harness.settings.set(patch))
   }
@@ -957,26 +961,57 @@ export default function SettingsModal(props: {
                   <div className="setting-label" style={{ marginBottom: 6 }}>
                     Catalog
                   </div>
-                  {catalog.map((c) => (
-                    <div key={c.id} className="mcp-catalog-row">
-                      <div>
-                        <b>{c.name}</b>
-                        <div className="setting-help">
-                          {c.description} · risk: {c.risk}
+                  {catalog.map((c) => {
+                    const installed = props.settings.mcpServers.some(
+                      (s) => s.source === `npm:${c.install}` || s.name === c.id
+                    )
+                    const busy = catalogBusy === c.id
+                    const msg = catalogMsg?.id === c.id ? catalogMsg : null
+                    return (
+                      <div key={c.id} className="mcp-catalog-row">
+                        <div>
+                          <b>{c.name}</b>
+                          <div className="setting-help">
+                            {c.description} · risk: {c.risk}
+                          </div>
+                          {msg && (
+                            <div
+                              className="setting-help"
+                              style={{ color: msg.err ? 'var(--err)' : 'var(--ok)' }}
+                            >
+                              {msg.text}
+                            </div>
+                          )}
                         </div>
+                        <button
+                          className="mini-btn"
+                          disabled={installed || busy}
+                          onClick={() => {
+                            setCatalogBusy(c.id)
+                            setCatalogMsg(null)
+                            void window.harness.mcp
+                              .install(c.install)
+                              .then(async (r) => {
+                                props.onChange(await window.harness.settings.get())
+                                if (r.ok) {
+                                  setCatalogMsg({
+                                    id: c.id,
+                                    text: r.missingEnv?.length
+                                      ? `Installed — add ${r.missingEnv.join(', ')} below to connect.`
+                                      : 'Installed and connecting…'
+                                  })
+                                } else {
+                                  setCatalogMsg({ id: c.id, text: r.error ?? 'Install failed', err: true })
+                                }
+                              })
+                              .finally(() => setCatalogBusy(null))
+                          }}
+                        >
+                          {installed ? 'Installed' : busy ? 'Installing…' : 'Install'}
+                        </button>
                       </div>
-                      <button
-                        className="mini-btn"
-                        onClick={() =>
-                          void window.harness.mcp.install(c.install).then(async () => {
-                            props.onChange(await window.harness.settings.get())
-                          })
-                        }
-                      >
-                        Install
-                      </button>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               )}
               <McpSection settings={props.settings} onChange={props.onChange} />

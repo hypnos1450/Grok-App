@@ -59,7 +59,6 @@ export default function App(): JSX.Element {
       setSettings(s)
       document.documentElement.dataset.reducedMotion = s.reducedMotion ? '1' : '0'
       await refreshSessions()
-      void window.harness.status.probe().then(setOffline)
     })()
   }, [refreshSessions])
 
@@ -136,13 +135,19 @@ export default function App(): JSX.Element {
     }
   }, [])
 
-  // Periodic health probe
+  // Health probe, scoped to a signed-in credential: probing while signed out only
+  // ever reports "sign in again", which would outlive the login it complains about.
   useEffect(() => {
+    if (!auth?.method) {
+      setOffline(null)
+      return
+    }
+    void window.harness.status.probe().then(setOffline)
     const t = setInterval(() => {
       void window.harness.status.probe().then(setOffline)
     }, 120_000)
     return () => clearInterval(t)
-  }, [])
+  }, [auth?.method])
 
   const newSession = useCallback(
     async (cwd?: string) => {
