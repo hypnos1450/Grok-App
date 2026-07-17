@@ -122,6 +122,8 @@ export async function streamCompletion(opts: {
   reasoningEffort?: 'low' | 'medium' | 'high'
   /** Pins the conversation to one cache server so the prompt prefix hits warm */
   cacheKey?: string
+  /** Constrain the reply to a JSON Schema (Responses API structured outputs) */
+  jsonSchema?: { name: string; schema: Record<string, unknown> }
   signal?: AbortSignal
   handlers?: StreamHandlers
 }): Promise<CompletionResult> {
@@ -218,6 +220,8 @@ async function streamOnce(opts: {
    * (grok-4.5: $2.00/M vs $0.50/M cached). Stable per conversation.
    */
   cacheKey?: string
+  /** Constrain the reply to a JSON Schema (Responses API structured outputs) */
+  jsonSchema?: { name: string; schema: Record<string, unknown> }
   signal?: AbortSignal
   handlers?: StreamHandlers
 }): Promise<CompletionResult> {
@@ -242,6 +246,16 @@ async function streamOnce(opts: {
   if (typeof opts.temperature === 'number') body.temperature = opts.temperature
   if (opts.reasoningEffort) body.reasoning = { effort: opts.reasoningEffort }
   if (opts.cacheKey) body.prompt_cache_key = opts.cacheKey
+  if (opts.jsonSchema) {
+    body.text = {
+      format: {
+        type: 'json_schema',
+        name: opts.jsonSchema.name,
+        schema: opts.jsonSchema.schema,
+        strict: true
+      }
+    }
+  }
 
   const res = await fetch(url, {
     method: 'POST',

@@ -236,6 +236,52 @@ export const REVIEW_PROMPT = `You are the background reviewer for a coding agent
 Output ONLY the JSON object, no prose or code fences:
 {"memory":[{"action":"add","target":"user|memory|project","content":"...","old_text":"..."}],"skills":[{"action":"create|update|delete","name":"kebab-slug","description":"...","content":"..."}],"digest":"..."}`
 
+/**
+ * Enforced shape for REVIEW_PROMPT's reply. The prompt used to just ask for JSON
+ * and the reply was parsed by finding the outermost braces — so prose, fences,
+ * or a truncated object silently yielded zero memory ops and no digest, with
+ * nothing logged. Structured outputs make the shape the API's problem instead.
+ * Fields the model may legitimately omit are nullable rather than absent, which
+ * is what `strict` requires. Verified accepted by both grok-4.5 and grok-4.3
+ * (the review pass runs on 4.3 when multiModelRouting is on, which is default).
+ */
+export const REVIEW_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    memory: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['add', 'replace', 'remove'] },
+          target: { type: 'string', enum: ['user', 'memory', 'project'] },
+          content: { type: ['string', 'null'] },
+          old_text: { type: ['string', 'null'] }
+        },
+        required: ['action', 'target', 'content', 'old_text'],
+        additionalProperties: false
+      }
+    },
+    skills: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['create', 'update', 'delete'] },
+          name: { type: 'string' },
+          description: { type: ['string', 'null'] },
+          content: { type: ['string', 'null'] }
+        },
+        required: ['action', 'name', 'description', 'content'],
+        additionalProperties: false
+      }
+    },
+    digest: { type: 'string' }
+  },
+  required: ['memory', 'skills', 'digest'],
+  additionalProperties: false
+}
+
 export const COMPACTION_PROMPT = `Summarize this coding session so a fresh agent can continue seamlessly. Include, in order:
 1. The user's goal and any constraints they stated.
 2. Current state: what has been done, files created/modified (with paths), key decisions made and why.

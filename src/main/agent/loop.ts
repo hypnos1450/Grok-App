@@ -18,7 +18,8 @@ import {
   Settings
 } from '@shared/types'
 import { ApiMessage, ApiToolCall, ProviderError, UserContentPart, streamCompletion } from './provider'
-import { COMPACTION_PROMPT, REVIEW_PROMPT, estimateTokens, profileFor } from './profiles'
+import { COMPACTION_PROMPT, REVIEW_PROMPT, REVIEW_SCHEMA, estimateTokens, profileFor } from './profiles'
+import { logger } from '../logger'
 import { MemoryTarget, memoryStore } from './memory'
 import { skillStore } from './skills'
 import { mcpManager } from './mcp'
@@ -31,6 +32,8 @@ import { SessionRecord, sessionStore } from '../sessions'
 import { bashAllowKey, resolveInWorkspace, writeAllowKey } from '../security'
 import { buildRepoMap } from '../repo-map'
 import { appendAudit } from '../audit'
+
+const log = logger('agent')
 
 export type PermissionResponder = (request: PermissionRequest) => Promise<{
   allow: boolean
@@ -298,7 +301,11 @@ export class AgentRun {
       this.emit({ type: 'turn-end', sessionId, stopReason })
       if (stopReason === 'done' && this.settings.memoryEnabled) {
         // Fire-and-forget: distill durable lessons from this turn into memory.
-        void this.backgroundReview().catch(() => undefined)
+        // Never let a failed review break the turn — but do say so. Silently
+        // swallowing meant memory could stop learning with no trace anywhere.
+        void this.backgroundReview().catch((err) =>
+          log.warn(`background review failed: ${err instanceof Error ? err.message : String(err)}`)
+        )
       }
     }
   }
@@ -362,6 +369,7 @@ export class AgentRun {
       model: reviewProfile.apiModel,
       // Distillation doesn't need deep reasoning — keep background calls cheap.
       reasoningEffort: reviewProfile.supportsReasoningEffort ? 'low' : undefined,
+      jsonSchema: { name: 'review', schema: REVIEW_SCHEMA },
       messages: [
         { role: 'system', content: REVIEW_PROMPT },
         {
@@ -834,17 +842,30 @@ interface ReviewResult {
   digest: string
 }
 
-/** Parse the review model's JSON output defensively (fences, prose, junk). */
+/**
+ * Parse the review model's JSON output. The request pins REVIEW_SCHEMA via
+ * structured outputs, so this should always be well-formed; the defensive
+ * parsing stays as a backstop, but anything it rejects is now logged rather
+ * than quietly returning "nothing to remember".
+ */
 function parseReview(raw: string): ReviewResult {
   const empty: ReviewResult = { memory: [], skills: [], digest: '' }
   const text = raw.trim()
+  if (!text) {
+    log.warn('review returned an empty response — no memory ops or digest this turn')
+    return empty
+  }
   const start = text.indexOf('{')
   const end = text.lastIndexOf('}')
-  if (start < 0 || end <= start) return empty
+  if (start < 0 || end <= start) {
+    log.warn(`review response was not JSON despite the schema — discarded: ${text.slice(0, 200)}`)
+    return empty
+  }
   let parsed: Record<string, unknown>
   try {
     parsed = JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>
-  } catch {
+  } catch (err) {
+    log.warn(`review JSON failed to parse — discarded: ${err instanceof Error ? err.message : String(err)}`)
     return empty
   }
 
