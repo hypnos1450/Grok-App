@@ -4,6 +4,23 @@ All notable changes to Conduit. Each release on GitHub carries the notes
 from its section here — the release workflow extracts them automatically when a
 version tag is pushed.
 
+## 0.5.5 — 2026-07-16
+
+**Memory writes stop failing silently**
+
+- **Fixed: the background review could silently learn nothing.** It asked for JSON in
+  prose and the reply was parsed by reading the outermost braces — prose, code fences, or
+  a truncated object all yielded zero memory ops and no digest, with nothing logged, and
+  the call site swallowed exceptions too. The reply is now pinned to a JSON schema via the
+  Responses API's structured outputs, and anything the parser still rejects is logged
+  instead of quietly becoming "nothing worth remembering". The digest also powers
+  `session_search`, so this was degrading recall as well.
+- Release pipeline: the matrix jobs could each create their own draft release for the
+  same tag and scatter assets across the duplicates — v0.5.4 shipped without its Linux
+  artifacts (repaired in place) and v0.4.4 without its Windows installer. The draft is now
+  created once up front, and publishing fails if any platform's installer or update
+  manifest is missing rather than shipping a partial release.
+
 ## 0.5.4 — 2026-07-16
 
 **Grok 4.5 tuning, MCP in packaged builds, and history recall**
