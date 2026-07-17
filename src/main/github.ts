@@ -17,8 +17,6 @@ async function gh(args: string[], cwd: string): Promise<string> {
 
 export async function detectRepo(cwd: string): Promise<GitHubRepoInfo | null> {
   try {
-    const url = await gh(['repo', 'view', '--json', 'nameWithOwner,url,defaultBranchRef', '-q', '.'], cwd)
-    // Prefer structured JSON
     const json = await gh(['repo', 'view', '--json', 'nameWithOwner,url,defaultBranchRef'], cwd)
     const data = JSON.parse(json) as {
       nameWithOwner?: string

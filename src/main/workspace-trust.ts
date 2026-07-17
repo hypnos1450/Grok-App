@@ -1,7 +1,7 @@
 // Workspace trust: first-open gate before agent tools run.
 import path from 'node:path'
 import fs from 'node:fs'
-import { WorkspaceTrustLevel, WorkspaceTrustState } from '@shared/types'
+import { WorkspaceTrustState } from '@shared/types'
 
 function norm(cwd: string): string {
   try {

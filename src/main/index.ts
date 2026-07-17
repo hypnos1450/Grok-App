@@ -1,4 +1,4 @@
-import { BrowserWindow, app, session as electronSession, shell } from 'electron'
+import { BrowserWindow, Notification, app, session as electronSession, shell } from 'electron'
 import path from 'node:path'
 import { initLogging, logger } from './logger'
 import { fixPath } from './shell-path'
@@ -103,7 +103,6 @@ if (!app.requestSingleInstanceLock()) {
     registerIpc(() => mainWindow)
     termManager.init(() => mainWindow, (sessionId, jobName, command, exitCode) => {
       try {
-        const { Notification } = require('electron') as typeof import('electron')
         if (!Notification.isSupported()) return
         if (mainWindow?.isFocused()) return
         const title =

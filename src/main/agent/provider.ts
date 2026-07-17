@@ -312,7 +312,7 @@ async function streamOnce(opts: {
       if (!line.startsWith('data:')) continue
       const data = line.slice(5).trim()
       if (!data || data === '[DONE]') continue
-      let ev: Record<string, any>
+      let ev: SseJson
       try {
         ev = JSON.parse(data)
       } catch {
@@ -350,6 +350,14 @@ type StreamState = {
   servedModel: string | undefined
 }
 
+// Raw SSE event / response JSON from the xAI API. Deliberately untyped: the
+// wire contract is large, evolving, and provider-specific, and every access
+// below narrows defensively (typeof / ?? / Array.isArray). Typing it `unknown`
+// would add narrowing ceremony at ~30 call sites without catching a bug those
+// guards don't already handle. This alias is the one place that trade-off lives.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SseJson = Record<string, any>
+
 const SERVER_TOOL_ITEM_TYPES = new Set([
   'web_search_call',
   'x_search_call',
@@ -358,7 +366,7 @@ const SERVER_TOOL_ITEM_TYPES = new Set([
 ])
 
 function handleEvent(
-  ev: Record<string, any>,
+  ev: SseJson,
   state: StreamState,
   handlers?: StreamHandlers
 ): void {
@@ -458,7 +466,7 @@ function handleEvent(
   }
 }
 
-function upsertFunctionCall(state: StreamState, item: Record<string, any>): void {
+function upsertFunctionCall(state: StreamState, item: SseJson): void {
   const callId = String(item.call_id ?? item.id ?? '')
   if (!callId || state.toolCalls.some((tc) => tc.id === callId)) return
   state.toolCalls.push({
@@ -471,7 +479,7 @@ function upsertFunctionCall(state: StreamState, item: Record<string, any>): void
   })
 }
 
-function serverToolDetail(item: Record<string, any>): string {
+function serverToolDetail(item: SseJson): string {
   const action = item.action ?? {}
   const candidate = action.query ?? action.url ?? item.query ?? item.url
   if (typeof candidate === 'string' && candidate) return candidate

@@ -1,0 +1,28 @@
+# Surfaces dependency updates as PRs so security drift is visible instead of
+# accumulating unseen — this repo shipped 10 high-severity advisories and an
+# EOL Electron that were only caught by a manual audit.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: '/'
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      # Batch low-risk dev tooling into one PR to cut noise. The heavy
+      # runtime/build majors are excluded so each arrives as its own PR and can
+      # be reviewed and tested in isolation.
+      dev-dependencies:
+        dependency-type: development
+        exclude-patterns:
+          - electron
+          - electron-builder
+          - electron-vite
+          - typescript
+          - vite
+          - '@vitejs/*'
+
+  - package-ecosystem: github-actions
+    directory: '/'
+    schedule:
+      interval: weekly

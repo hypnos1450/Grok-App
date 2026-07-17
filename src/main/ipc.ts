@@ -49,8 +49,7 @@ import type {
   GitHubPrDraft,
   OfflineStatus,
   PaletteAction,
-  SessionSearchHit,
-  UpdateChannel
+  SessionSearchHit
 } from '@shared/types'
 
 const runs = new Map<string, AgentRun>()
@@ -167,6 +166,11 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
   }
   const handle = (
     channel: string,
+    // Variadic dispatch registry: each handler declares its own typed args
+    // (e.g. (_e, id: string)). `unknown[]` would reject those via parameter
+    // contravariance, so `any[]` is the pragmatic type for the boundary — the
+    // individual handlers are the ones that narrow.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     fn: (e: IpcMainInvokeEvent, ...args: any[]) => unknown
   ): void => {
     ipcMain.handle(channel, (e, ...args) => {
