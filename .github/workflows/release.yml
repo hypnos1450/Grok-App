@@ -54,7 +54,7 @@ jobs:
 
       # Python 3.12+ dropped distutils; node-gyp still imports it.
       # setuptools restores a compatible distutils. Pin 3.12 for consistency.
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
 
