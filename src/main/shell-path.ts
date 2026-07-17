@@ -23,18 +23,22 @@ const TIMEOUT_MS = 5_000
 export function resolveShellPath(): Promise<string | undefined> {
   if (process.platform === 'win32') return Promise.resolve(undefined)
   const shell = process.env.SHELL || '/bin/zsh'
+  // Known limitation: this assumes a POSIX shell where "$PATH" expands to a
+  // colon-joined string. fish/nushell/elvish treat $PATH as a list and expand
+  // it space-separated, so the result would be garbage. Those users keep the
+  // GUI-inherited PATH (fixPath's union preserves it), so MCP is no worse than
+  // before — it just isn't improved. Not worth special-casing until asked.
   return new Promise((resolve) => {
     // -i so PATH set in .zshrc/.bashrc (interactive-only for most users) is seen.
     // The delimiter lets us ignore anything the rc files print on startup.
+    // Env is left as-is on purpose: setting CI=1 here would make rc files that
+    // branch on $CI (a common convention) skip conditional PATH entries, so we
+    // could resolve a PATH the user doesn't actually have — the exact failure
+    // this file exists to prevent.
     execFile(
       shell,
       ['-ilc', `printf '%s%s' '${DELIM}' "$PATH"`],
-      {
-        timeout: TIMEOUT_MS,
-        // Keep noisy rc integrations from stalling or polluting a login shell
-        // that has no tty attached.
-        env: { ...process.env, DISABLE_AUTO_UPDATE: 'true', CI: '1' }
-      },
+      { timeout: TIMEOUT_MS },
       (err, stdout) => {
         if (err) {
           log.warn(`could not read PATH from ${shell}: ${err.message}`)
