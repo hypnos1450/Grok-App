@@ -43,7 +43,7 @@ jobs:
         os: [macos-latest, windows-2022, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # node-pty rebuild needs a C++ toolchain + Python (node-gyp).
       # @electron/rebuild@4 / node-abi require Node >= 22.12.
@@ -103,7 +103,7 @@ jobs:
     needs: release
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Publishing a release that is missing a platform is worse than failing:
       # the update manifests are what clients poll, so a missing latest-*.yml
