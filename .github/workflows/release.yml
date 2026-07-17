@@ -12,7 +12,29 @@ permissions:
   contents: write
 
 jobs:
+  # Create the draft release BEFORE the matrix fans out. electron-builder does a
+  # find-or-create per job, and a draft release does not reserve its tag — so
+  # three jobs starting at once each find nothing and each create their own
+  # draft. Assets then scatter across the duplicates and `gh release edit`
+  # publishes only whichever one the tag resolves to, silently shipping a
+  # partial release (v0.5.4 lost all Linux artifacts this way; v0.4.3/v0.4.4
+  # too). With the draft already present, all three jobs find the same one.
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create the draft release
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME already exists — reusing it."
+          else
+            gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" \
+              --draft --title "${GITHUB_REF_NAME#v}" --notes "Build in progress…"
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
   release:
+    needs: prepare
     strategy:
       fail-fast: false
       matrix:
@@ -82,6 +104,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      # Publishing a release that is missing a platform is worse than failing:
+      # the update manifests are what clients poll, so a missing latest-*.yml
+      # silently strands that platform on the previous version. Fail instead.
+      - name: Verify every platform made it into the release
+        run: |
+          dupes=$(gh api "/repos/$GITHUB_REPOSITORY/releases" \
+            --jq "[.[] | select(.tag_name==\"$GITHUB_REF_NAME\")] | length")
+          if [ "$dupes" != "1" ]; then
+            echo "::error::Found $dupes releases tagged $GITHUB_REF_NAME (expected 1) — assets have scattered across duplicate drafts."
+            exit 1
+          fi
+          assets=$(gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name')
+          echo "$assets"
+          missing=""
+          for want in latest.yml latest-mac.yml latest-linux.yml .exe .dmg .AppImage .deb; do
+            echo "$assets" | grep -q -- "$want" || missing="$missing $want"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Release $GITHUB_REF_NAME is missing:$missing"
+            exit 1
+          fi
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish the release with CHANGELOG notes
         run: |
