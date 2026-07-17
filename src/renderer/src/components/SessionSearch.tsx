@@ -1,5 +1,5 @@
 // Full-text session search modal.
-import { useEffect, useState } from 'react'
+import { JSX, useEffect, useState } from 'react'
 import { SessionSearchHit } from '@shared/types'
 
 export default function SessionSearch(props: {

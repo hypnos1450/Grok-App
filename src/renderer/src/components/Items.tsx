@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react'
+import { JSX, memo, useMemo, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import hljs from 'highlight.js/lib/common'

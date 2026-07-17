@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { JSX, useEffect, useMemo, useRef, useState } from 'react'
 import { SessionMeta } from '@shared/types'
 import { SparkLogo } from './Chat'
 import { GearIcon, HomeIcon, PanelLeftIcon, PlusIcon, SearchIcon, XIcon } from './Icons'

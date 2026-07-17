@@ -1,6 +1,6 @@
 // Full terminal panel: xterm.js rendering, multi-job tabs, command history,
 // clear/copy/restart, open-in-system-terminal, and send-selection-to-chat.
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { JSX, useCallback, useEffect, useRef, useState } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'

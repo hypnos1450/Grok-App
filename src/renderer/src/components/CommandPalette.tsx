@@ -1,5 +1,5 @@
 // App-wide command palette (⌘⇧O). Lists actions from main and runs them via callback.
-import { useEffect, useMemo, useState } from 'react'
+import { JSX, useEffect, useMemo, useState } from 'react'
 import { PaletteAction } from '@shared/types'
 
 export default function CommandPalette(props: {

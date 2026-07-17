@@ -1,3 +1,4 @@
+import { JSX } from 'react'
 // Shared stroke-based SVG icon set. Replaces the old unicode glyphs (⚙ ⌕ ⇤ ＋ ✕ …)
 // which rendered tiny and inconsistently across platforms. All icons inherit
 // `currentColor` and default to 18px so they read clearly inside icon buttons.

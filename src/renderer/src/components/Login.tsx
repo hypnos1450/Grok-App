@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { JSX, useState } from 'react'
 import { AuthState } from '@shared/types'
 
 export default function Login({ onAuthed }: { onAuthed: (a: AuthState) => void }): JSX.Element {

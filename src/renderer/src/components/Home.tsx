@@ -2,7 +2,7 @@
 // usage statistics aggregated from session metadata, and gets them back to
 // work fast: recent projects (sessions grouped by working folder), recent
 // sessions, and new-project / quick-session actions.
-import { useMemo } from 'react'
+import { JSX, useMemo } from 'react'
 import { SessionMeta } from '@shared/types'
 import { SparkLogo, fmt, greeting } from './Chat'
 import {

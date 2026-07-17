@@ -3,7 +3,7 @@
 // Tasks stack in one column and split its height; Terminal opens as its own
 // column. Panels can be expanded to fill their column or closed from their
 // header. Open state persists across launches.
-import { useCallback, useEffect, useState } from 'react'
+import { JSX, useCallback, useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import hljs from 'highlight.js/lib/common'
