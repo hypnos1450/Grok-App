@@ -131,19 +131,10 @@ const bashTool: Tool = {
         return
       }
       const timeoutS = Math.min(Number(input.timeout_seconds) || 120, 600)
-      const shellBin = process.platform === 'win32' ? 'cmd.exe' : '/bin/zsh'
-      const shellArgs = process.platform === 'win32' ? ['/d', '/s', '/c', command] : ['-lc', command]
-      // Inherit env but drop common credential vars so a confused model
-      // can't trivially dump tokens via `env` / `printenv`.
-      const env: NodeJS.ProcessEnv = { ...process.env, CLICOLOR: '0', NO_COLOR: '1', GIT_PAGER: 'cat', PAGER: 'cat' }
-      for (const k of Object.keys(env)) {
-        if (/^(XAI_|OPENAI_|ANTHROPIC_|AWS_|GH_TOKEN|GITHUB_TOKEN|NPM_TOKEN|API_KEY|.*_API_KEY|.*_SECRET|.*_TOKEN)$/i.test(k)) {
-          delete env[k]
-        }
-      }
+      const [shellBin, shellArgs] = shellInvocation(command)
       const child = spawn(shellBin, shellArgs, {
         cwd: ctx.cwd,
-        env,
+        env: commandEnv(),
         stdio: ['ignore', 'pipe', 'pipe']
       })
       let out = ''
@@ -171,6 +162,117 @@ const bashTool: Tool = {
             ? `\n[exit code ${code}]`
             : ''
         resolve({ ok: code === 0 && !timedOut, output: clamp(out) + suffix || '(no output)' })
+      })
+    })
+}
+
+/** Shell binary + args for a command, per platform. */
+function shellInvocation(command: string): [string, string[]] {
+  return process.platform === 'win32'
+    ? ['cmd.exe', ['/d', '/s', '/c', command]]
+    : ['/bin/zsh', ['-lc', command]]
+}
+
+/** Env for spawned commands: inherit, but drop common credential vars so a
+ *  confused model can't dump tokens via `env`/`printenv`. */
+function commandEnv(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...process.env, CLICOLOR: '0', NO_COLOR: '1', GIT_PAGER: 'cat', PAGER: 'cat' }
+  for (const k of Object.keys(env)) {
+    if (/^(XAI_|OPENAI_|ANTHROPIC_|AWS_|GH_TOKEN|GITHUB_TOKEN|NPM_TOKEN|API_KEY|.*_API_KEY|.*_SECRET|.*_TOKEN)$/i.test(k)) {
+      delete env[k]
+    }
+  }
+  return env
+}
+
+// ---------------------------------------------------------------- monitor
+
+const monitorTool: Tool = {
+  name: 'monitor',
+  kind: 'command',
+  def: {
+    type: 'function',
+    function: {
+      name: 'monitor',
+      description:
+        'Run a long-running command and watch its output until a condition is met — a dev server booting, ' +
+        'CI/tests finishing, or a log line appearing. Returns the collected output and why it stopped. ' +
+        'Set `until` to a regular expression to stop as soon as a matching line appears (e.g. "listening on|Compiled|FAIL"). ' +
+        'Without `until`, it watches until the command exits or the timeout is reached. ' +
+        'Use this instead of bash when you need to wait for something to happen in a process that keeps running.',
+      parameters: {
+        type: 'object',
+        properties: {
+          command: { type: 'string', description: 'The shell command to run and watch' },
+          until: {
+            type: 'string',
+            description: 'Regex; stop as soon as an output line matches it. Omit to watch until the command exits.'
+          },
+          timeout_seconds: { type: 'number', description: 'Max watch time in seconds (default 120, max 600)' }
+        },
+        required: ['command']
+      }
+    }
+  },
+  summarize: (input) =>
+    `monitor: ${String(input.command ?? '')}${input.until ? ` (until /${input.until}/)` : ''}`,
+  run: (input, ctx) =>
+    new Promise((resolve) => {
+      const command = str(input, 'command')
+      const danger = dangerousCommand(command)
+      if (danger) {
+        resolve({ ok: false, output: `Refused: this command looks destructive (${danger}).` })
+        return
+      }
+      let until: RegExp | null = null
+      if (typeof input.until === 'string' && input.until) {
+        try {
+          until = new RegExp(input.until)
+        } catch (e) {
+          resolve({ ok: false, output: `Invalid \`until\` regex: ${e instanceof Error ? e.message : String(e)}` })
+          return
+        }
+      }
+      const timeoutS = Math.min(Number(input.timeout_seconds) || 120, 600)
+      const [bin, args] = shellInvocation(command)
+      const child = spawn(bin, args, { cwd: ctx.cwd, env: commandEnv(), stdio: ['ignore', 'pipe', 'pipe'] })
+
+      let out = ''
+      let pending = '' // partial line buffer for `until` matching
+      let stop: string | null = null
+      const finish = (ok: boolean, reason: string): void => {
+        clearTimeout(timer)
+        ctx.signal.removeEventListener('abort', onAbort)
+        if (!child.killed) child.kill('SIGKILL')
+        resolve({ ok, output: `${clamp(out).trim() || '(no output)'}\n[${reason}]` })
+      }
+      const onData = (d: Buffer): void => {
+        const s = d.toString('utf8')
+        out += s
+        if (!until || stop) return
+        pending += s
+        const lines = pending.split('\n')
+        pending = lines.pop() ?? ''
+        for (const line of lines) {
+          if (until.test(line)) {
+            stop = line
+            finish(true, `matched /${input.until}/ on: ${line.trim().slice(0, 200)}`)
+            return
+          }
+        }
+      }
+      const timer = setTimeout(
+        () => finish(!until, until ? `timed out after ${timeoutS}s before /${input.until}/ matched — still running` : `watched ${timeoutS}s`),
+        timeoutS * 1000
+      )
+      const onAbort = (): void => finish(false, 'cancelled')
+      ctx.signal.addEventListener('abort', onAbort, { once: true })
+      child.stdout.on('data', onData)
+      child.stderr.on('data', onData)
+      child.on('error', (err) => finish(false, `failed to start: ${err.message}`))
+      child.on('close', (code) => {
+        if (stop) return // already resolved on match
+        finish(code === 0, `command exited with code ${code}`)
       })
     })
 }
@@ -1120,7 +1222,7 @@ const recallHistoryTool: Tool = {
 }
 
 export const TOOLS: Tool[] = [
-  bashTool, readFileTool, applyPatchTool, writeFileTool, editFileTool, listDirTool, globTool, grepTool,
+  bashTool, monitorTool, readFileTool, applyPatchTool, writeFileTool, editFileTool, listDirTool, globTool, grepTool,
   fetchPageTool, updatePlanTool, memoryTool, skillTool, sessionSearchTool, recallHistoryTool,
   spawnAgentTool
 ]
