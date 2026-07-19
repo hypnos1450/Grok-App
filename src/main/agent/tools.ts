@@ -430,8 +430,8 @@ const writeFileTool: Tool = {
     function: {
       name: 'write_file',
       description:
-        'Create or overwrite a file with the given content. Creates parent directories. ' +
-        'For small changes to existing files prefer edit_file.',
+        'Create or overwrite a whole file with the given content. Creates parent directories. ' +
+        'For changes to parts of an existing file prefer apply_patch.',
       parameters: {
         type: 'object',
         properties: {
@@ -460,72 +460,6 @@ const writeFileTool: Tool = {
     await fsp.mkdir(path.dirname(file), { recursive: true })
     await fsp.writeFile(file, content, 'utf8')
     return { ok: true, output: `Wrote ${content.length} chars to ${file}` }
-  }
-}
-
-// ---------------------------------------------------------------- edit_file
-
-const editFileTool: Tool = {
-  name: 'edit_file',
-  kind: 'write',
-  def: {
-    type: 'function',
-    function: {
-      name: 'edit_file',
-      description:
-        'Replace an exact string in a file. old_string must appear exactly once ' +
-        '(or set replace_all). Include surrounding lines to make it unique.',
-      parameters: {
-        type: 'object',
-        properties: {
-          path: { type: 'string' },
-          old_string: { type: 'string', description: 'Exact text to find' },
-          new_string: { type: 'string', description: 'Replacement text' },
-          replace_all: { type: 'boolean', description: 'Replace every occurrence' }
-        },
-        required: ['path', 'old_string', 'new_string']
-      }
-    }
-  },
-  summarize: (input) => `Edit ${input.path}`,
-  preview: async (input, ctx) => {
-    const file = resolveInCwd(ctx.cwd, str(input, 'path'))
-    const text = await fsp.readFile(file, 'utf8')
-    const applied = applyEdit(text, input)
-    return typeof applied === 'string' ? undefined : unifiedDiff(text, applied.next)
-  },
-  run: async (input, ctx) => {
-    const file = resolveInCwd(ctx.cwd, str(input, 'path'))
-    const text = await fsp.readFile(file, 'utf8')
-    const applied = applyEdit(text, input)
-    if (typeof applied === 'string') return { ok: false, output: applied }
-    await ctx.onBeforeMutate?.(file)
-    await fsp.writeFile(file, applied.next, 'utf8')
-    return {
-      ok: true,
-      output: `Edited ${file} (${applied.count} replacement${applied.count === 1 ? '' : 's'})`
-    }
-  }
-}
-
-/** Shared edit logic so preview and run can't disagree. Returns error string on failure. */
-function applyEdit(
-  text: string,
-  input: Record<string, unknown>
-): { next: string; count: number } | string {
-  const oldStr = String(input.old_string ?? '')
-  const newStr = String(input.new_string ?? '')
-  if (!oldStr) return 'old_string is empty'
-  const count = text.split(oldStr).length - 1
-  if (count === 0) {
-    return 'old_string not found in file. Re-read the file and match the text exactly, including whitespace.'
-  }
-  if (count > 1 && !input.replace_all) {
-    return `old_string appears ${count} times. Add surrounding context to make it unique, or set replace_all.`
-  }
-  return {
-    next: input.replace_all ? text.split(oldStr).join(newStr) : text.replace(oldStr, newStr),
-    count
   }
 }
 
@@ -1359,7 +1293,7 @@ const askUserTool: Tool = {
 }
 
 export const TOOLS: Tool[] = [
-  bashTool, monitorTool, diagnosticsTool, readFileTool, applyPatchTool, writeFileTool, editFileTool, listDirTool, globTool, grepTool,
+  bashTool, monitorTool, diagnosticsTool, readFileTool, applyPatchTool, writeFileTool, listDirTool, globTool, grepTool,
   fetchPageTool, updatePlanTool, askUserTool, memoryTool, skillTool, sessionSearchTool, recallHistoryTool,
   spawnAgentTool
 ]

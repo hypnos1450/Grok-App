@@ -183,7 +183,7 @@ function hostOf(url: string): string {
 function toolIcon(name: string): string {
   if (name === 'bash') return '❯_'
   if (name === 'read_file') return '◫'
-  if (name === 'write_file' || name === 'edit_file') return '✎'
+  if (name === 'write_file' || name === 'apply_patch') return '✎'
   if (name === 'list_dir') return '🗀'
   if (name === 'glob' || name === 'grep') return '⌕'
   if (name === 'fetch_page') return '🌐'
@@ -295,8 +295,14 @@ function summarize(item: Extract<ChatItem, { kind: 'tool' }>): string {
       return String(input.command ?? '')
     case 'read_file':
     case 'write_file':
-    case 'edit_file':
       return String(input.path ?? '')
+    case 'apply_patch': {
+      const paths = [
+        ...String(input.patch ?? '').matchAll(/^\*\*\* (?:Add|Update|Delete) File: (.+)$/gm)
+      ].map((m) => m[1].trim())
+      if (paths.length <= 1) return paths[0] ?? 'patch'
+      return `${paths.length} files: ${paths.slice(0, 3).join(', ')}${paths.length > 3 ? '…' : ''}`
+    }
     case 'glob':
     case 'grep':
       return String(input.pattern ?? '')

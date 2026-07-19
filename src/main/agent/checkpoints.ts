@@ -1,7 +1,7 @@
 // File checkpoints: before the agent's file tools mutate a file for the
 // first time in a run, the original is copied aside so the user can rewind
 // everything a message caused. (Limitation: bash-driven mutations are not
-// captured — only write_file / edit_file.)
+// captured — only the file tools: apply_patch / write_file.)
 import { app } from 'electron'
 import crypto from 'node:crypto'
 import fs from 'node:fs'

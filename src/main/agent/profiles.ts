@@ -141,7 +141,7 @@ const GROK_BUILD_ADDENDUM = `# Model guidance (Grok Build — Grok 4.5)
 - Work plan-first: before touching files on any multi-step task, write a numbered plan of the concrete edits and checks you will make. Then execute it step by step, adjusting as needed.
 - Prefer many small, verified steps over one big change: make a focused edit, run a quick check (typecheck, targeted test, or the command that exercises the change), then proceed.
 - Keep context lean — your window is 500K tokens. Read files with offset/limit when you only need a region, use grep to locate before you read, and avoid re-reading files you already have.
-- One concern per edit_file call. Batch independent reads in parallel, but apply mutations sequentially so failures are attributable.
+- Batch independent reads in parallel, but apply mutations sequentially so failures are attributable.
 - If a task turns out to be deeper than it looked (architectural change, ambiguous requirements), pause and present the decision to the user rather than churning.`
 
 const PLAN_ONLY_GUIDANCE = `# Plan-only mode
@@ -230,7 +230,7 @@ export const REVIEW_PROMPT = `You are the background reviewer for a coding agent
 - User preferences, corrections, pet peeves ("prefers pnpm", "don't add comments") → target "user"
 - Global environment facts and cross-project lessons → target "memory"
 - Conventions, commands, and gotchas specific to the current workspace → target "project"
-- SELF-EVALUATION: compare the agent's behavior against its guidance (did it verify changes? call tools it didn't need? retry a denied action?). If the telemetry shows a RECURRING behavioral miss, add a corrective self-directive to "memory" (e.g. "I keep editing files without re-reading them first in this repo; always re-read before edit_file").
+- SELF-EVALUATION: compare the agent's behavior against its guidance (did it verify changes? call tools it didn't need? retry a denied action?). If the telemetry shows a RECURRING behavioral miss, add a corrective self-directive to "memory" (e.g. "I keep editing files without re-reading them first in this repo; always re-read before apply_patch").
 - Most exchanges contain nothing durable — an empty list is the normal output. Never duplicate or trivially rephrase an existing entry; use "replace" (old_text = unique substring) to improve one. Compact, single-fact entries. Never store secrets. At most 3 ops.
 
 "skills": operations on procedural playbooks.

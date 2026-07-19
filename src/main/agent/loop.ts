@@ -545,14 +545,19 @@ export class AgentRun {
     }
     if (!result.ok) recordFailure('error', tool.name, result.output)
     // Track file mutations for the turn review panel.
-    if (result.ok && (tool.name === 'write_file' || tool.name === 'edit_file')) {
+    if (result.ok && tool.name === 'write_file') {
       const p = String(input.path ?? '')
       if (p) {
         this.session.lastTurnChanges = this.session.lastTurnChanges ?? []
-        this.session.lastTurnChanges.push({
-          path: p,
-          kind: tool.name === 'write_file' ? 'write' : 'edit'
-        })
+        this.session.lastTurnChanges.push({ path: p, kind: 'write' })
+      }
+    } else if (result.ok && tool.name === 'apply_patch') {
+      // A patch can touch several files; pull each from its header.
+      const re = /^\*\*\* (Add|Update|Delete) File: (.+)$/gm
+      let m: RegExpExecArray | null
+      while ((m = re.exec(String(input.patch ?? '')))) {
+        this.session.lastTurnChanges = this.session.lastTurnChanges ?? []
+        this.session.lastTurnChanges.push({ path: m[2].trim(), kind: m[1] === 'Add' ? 'write' : 'edit' })
       }
     }
     // Test-after-edit: append a verification hint so the model runs checks.
