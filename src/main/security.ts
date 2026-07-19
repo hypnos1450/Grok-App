@@ -340,7 +340,7 @@ export async function assertPublicUrl(url: URL): Promise<void> {
     }
   } catch (err) {
     if (err instanceof Error && err.message.startsWith('Refusing')) throw err
-    throw new Error(`DNS lookup failed: ${err instanceof Error ? err.message : String(err)}`)
+    throw new Error(`DNS lookup failed: ${err instanceof Error ? err.message : String(err)}`, { cause: err })
   }
 }
 

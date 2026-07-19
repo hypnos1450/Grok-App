@@ -34,6 +34,14 @@ export default tseslint.config(
       // where stale-closure bugs hide, so each suppression must be justified in
       // review rather than silently accumulating.
       'react-hooks/exhaustive-deps': 'error',
+      // react-hooks 7's `recommended` newly enables a batch of React-Compiler
+      // correctness rules. We keep rules-of-hooks, exhaustive-deps, refs, and
+      // purity, but turn OFF set-state-in-effect: every occurrence here is a
+      // legitimate effect that syncs async IPC state or responds to an
+      // imperative signal prop (modal reset-on-open, clear-stale-on-switch,
+      // force-open counters) — none is derivable during render, and this
+      // project doesn't target the React Compiler. Revisit if it ever does.
+      'react-hooks/set-state-in-effect': 'off',
       // Allow the conventional `_`-prefixed intentional-unused (event args,
       // catch vars, deliberately-ignored destructures).
       '@typescript-eslint/no-unused-vars': [

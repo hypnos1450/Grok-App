@@ -45,7 +45,7 @@ async function runOne(task: string, cwd: string, model: string, signal: AbortSig
       result.toolCalls.map(async (call) => {
         const tool = byName.get(call.function.name)
         if (!tool) return { id: call.id, output: `Unknown tool ${call.function.name}` }
-        let input: Record<string, unknown> = {}
+        let input: Record<string, unknown>
         try {
           input = JSON.parse(call.function.arguments || '{}')
         } catch {

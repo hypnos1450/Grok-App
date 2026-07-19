@@ -51,6 +51,7 @@ export default function Home(props: {
   const { sessions } = props
 
   const stats = useMemo(() => {
+    // eslint-disable-next-line react-hooks/purity -- coarse "this week" stat; render-time clock staleness is irrelevant
     const now = Date.now()
     let messages = 0
     let tokens = 0

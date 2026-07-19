@@ -42,8 +42,13 @@ export default function App(): JSX.Element {
     togglePlanOnly?: () => void
     createPr?: () => void
   }>({})
+  // Mirror the latest activeId into a ref so the long-lived agent event
+  // handler (set up once) can read it without re-subscribing. Written in an
+  // effect, not during render — the handler only reads it on async events.
   const activeIdRef = useRef<string | null>(null)
-  activeIdRef.current = activeId
+  useEffect(() => {
+    activeIdRef.current = activeId
+  }, [activeId])
 
   const refreshSessions = useCallback(async () => {
     setSessions(await window.harness.sessions.list())

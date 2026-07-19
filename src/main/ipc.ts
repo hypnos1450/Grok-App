@@ -214,7 +214,7 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       try {
         cwd = assertExistingDir(String(opts.cwd))
       } catch (err) {
-        throw new Error(err instanceof Error ? err.message : 'Invalid working directory')
+        throw new Error(err instanceof Error ? err.message : 'Invalid working directory', { cause: err })
       }
     }
     const model =

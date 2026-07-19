@@ -43,7 +43,8 @@ class LspManager {
       client.dispose()
       const stderr = client.stderr ? `\nServer stderr: ${client.stderr.slice(-500)}` : ''
       throw new Error(
-        `${spec.id} language server failed to start: ${e instanceof Error ? e.message : String(e)}${stderr}`
+        `${spec.id} language server failed to start: ${e instanceof Error ? e.message : String(e)}${stderr}`,
+        { cause: e }
       )
     }
     return client
