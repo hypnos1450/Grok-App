@@ -37,21 +37,37 @@ interface Notice {
 }
 
 /** The app's spark mark, matching the icon. */
+/**
+ * The "Monogram C" brand mark — matches the app icon: an open C-arc with a
+ * cyan→periwinkle gradient and a glowing node at its top terminal. Rendered
+ * transparent (no icon background) so it sits on the app's dark surfaces.
+ */
 export function SparkLogo({ size = 28 }: { size?: number }): JSX.Element {
   return (
     <svg width={size} height={size} viewBox="0 0 32 32" fill="none" aria-hidden>
       <defs>
-        <radialGradient id="spark-g" cx="50%" cy="50%" r="50%">
-          <stop offset="0%" stopColor="var(--accent)" stopOpacity="0.35" />
-          <stop offset="100%" stopColor="var(--accent)" stopOpacity="0" />
+        <linearGradient id="conduit-c" x1="9" y1="5" x2="21" y2="27" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#d6f0ff" />
+          <stop offset="45%" stopColor="#7fb6ff" />
+          <stop offset="100%" stopColor="#6f6cf2" />
+        </linearGradient>
+        <radialGradient id="conduit-c-glow" cx="50%" cy="50%" r="50%">
+          <stop offset="0%" stopColor="#eaf7ff" stopOpacity="0.95" />
+          <stop offset="60%" stopColor="#9fc9ff" stopOpacity="0.35" />
+          <stop offset="100%" stopColor="#9fc9ff" stopOpacity="0" />
         </radialGradient>
       </defs>
-      <circle cx="16" cy="16" r="15" fill="url(#spark-g)" />
+      {/* open C, gap on the right; thin near the top node, per the icon */}
       <path
-        d="M16 2 L18 13 L29 16 L18 19 L16 30 L14 19 L3 16 L14 13 Z"
-        fill="var(--accent)"
+        d="M21.83 6.67 A11 11 0 1 0 21.16 25.71"
+        stroke="url(#conduit-c)"
+        strokeWidth="3.4"
+        strokeLinecap="round"
+        fill="none"
       />
-      <path d="M16 7 L17 14.5 L24 16 L17 17.5 L16 25 L15 17.5 L8 16 L15 14.5 Z" fill="#fff" />
+      {/* glowing node at the top terminal */}
+      <circle cx="21.83" cy="6.67" r="6.5" fill="url(#conduit-c-glow)" />
+      <circle cx="21.83" cy="6.67" r="2.5" fill="#eef8ff" />
     </svg>
   )
 }
