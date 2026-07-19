@@ -9,6 +9,7 @@ import { PlanStep } from '@shared/types'
 import { ApiToolDef } from './provider'
 import { newFilePreview, unifiedDiff } from './diff'
 import { parsePatch, applyHunks, PatchError } from './apply-patch'
+import { fetchDocPage, loadCatalog, loadIndex, resolveDocset, searchIndex } from './docs'
 import { lspManager } from './lsp/manager'
 import { LspDiagnostic, LspDocumentSymbol, LspLocation, LspLocationLink } from './lsp/client'
 import { MemoryTarget, memoryStore } from './memory'
@@ -1152,6 +1153,89 @@ const fetchPageTool: Tool = {
   }
 }
 
+// ------------------------------------------------------------------ docs
+
+const docsTool: Tool = {
+  name: 'docs',
+  kind: 'read',
+  def: {
+    type: 'function',
+    function: {
+      name: 'docs',
+      description:
+        'Look up official programming documentation (devdocs.io): exact API signatures, syntax, standard-library and framework behavior — versioned, so it beats recalling from memory. ' +
+        'Actions: "search" — find entries in one docset (`doc` = its slug: javascript, dom, css, html, http, node, typescript, python, react, vue, go, rust, cpp, postgresql, …); when the top hit is exact its full content is included. ' +
+        '"read" — fetch one entry using `doc` plus a `path` exactly as returned by search. ' +
+        '"list" — discover docset slugs (optional query filters; slugs with ~ pin a version, e.g. python~3.13, node~22_lts). ' +
+        'Use it whenever unsure about a method, option, or syntax detail instead of guessing. Network needed on first use per docset; indexes are then cached locally for a week.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['search', 'read', 'list'] },
+          query: { type: 'string', description: 'What to look up (search) or filter docsets by (list)' },
+          doc: { type: 'string', description: 'Docset slug (search/read), e.g. "javascript" or "python~3.13"' },
+          path: { type: 'string', description: 'Entry path from a search result (read)' }
+        },
+        required: ['action']
+      }
+    }
+  },
+  summarize: (input) =>
+    `docs ${input.action}: ${String(input.query ?? input.path ?? '')}${input.doc ? ` [${input.doc}]` : ''}`,
+  run: async (input, ctx) => {
+    const action = String(input.action ?? '')
+    try {
+      if (action === 'list') {
+        const q = String(input.query ?? '').trim().toLowerCase()
+        const catalog = await loadCatalog(ctx.signal)
+        const hits = catalog
+          .filter((d) => !q || d.slug.toLowerCase().includes(q) || d.name.toLowerCase().includes(q))
+          .slice(0, 40)
+        if (!hits.length) return { ok: true, output: `No docsets match "${input.query}". Try action "list" with a broader query.` }
+        return {
+          ok: true,
+          output: hits.map((d) => `${d.slug} — ${d.name}${d.release ? ` (${d.release})` : ''}`).join('\n')
+        }
+      }
+      if (action !== 'search' && action !== 'read') {
+        return { ok: false, output: 'action must be "search", "read", or "list"' }
+      }
+      const docset = resolveDocset(await loadCatalog(ctx.signal), str(input, 'doc'))
+      if (!docset) {
+        return { ok: false, output: `Unknown docset "${input.doc}". Use action "list" with a query to find the right slug.` }
+      }
+      if (action === 'read') {
+        const entryPath = str(input, 'path')
+        const html = await fetchDocPage(docset.slug, entryPath, ctx.signal)
+        return { ok: true, output: clamp(`[${docset.slug}/${entryPath}]\n${htmlToText(html)}`) }
+      }
+      const query = str(input, 'query')
+      const hits = searchIndex(await loadIndex(docset.slug, ctx.signal), query, 15)
+      if (!hits.length) {
+        return { ok: true, output: `No entries matching "${query}" in ${docset.slug}. Try a shorter query, or another docset (action "list").` }
+      }
+      const listing = hits
+        .map((e) => `${e.name}${e.type ? ` (${e.type})` : ''} — path: ${e.path}`)
+        .join('\n')
+      // Confident top hit: include its content so no second call is needed.
+      const normalize = (s: string): string => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+      let content = ''
+      if (hits.length === 1 || normalize(hits[0].name) === normalize(query)) {
+        const html = await fetchDocPage(docset.slug, hits[0].path, ctx.signal)
+        content = `\n\n━━ ${hits[0].name} ━━\n${htmlToText(html)}`
+      } else {
+        content = `\n\nUse action "read" with doc + path for any entry above.`
+      }
+      return { ok: true, output: clamp(`${listing}${content}`) }
+    } catch (e) {
+      return {
+        ok: false,
+        output: `docs lookup failed: ${e instanceof Error ? e.message : String(e)}. Network is required on first use per docset; try web search as a fallback.`
+      }
+    }
+  }
+}
+
 // ------------------------------------------------------------ update_plan
 
 const PLAN_STATUSES = new Set(['pending', 'active', 'done'])
@@ -1476,7 +1560,7 @@ const askUserTool: Tool = {
 
 export const TOOLS: Tool[] = [
   bashTool, monitorTool, diagnosticsTool, lspTool, readFileTool, applyPatchTool, writeFileTool, listDirTool, globTool, grepTool,
-  fetchPageTool, updatePlanTool, askUserTool, memoryTool, skillTool, sessionSearchTool, recallHistoryTool,
+  fetchPageTool, docsTool, updatePlanTool, askUserTool, memoryTool, skillTool, sessionSearchTool, recallHistoryTool,
   spawnAgentTool
 ]
 
@@ -1484,7 +1568,7 @@ export const toolByName = new Map(TOOLS.map((t) => [t.name, t]))
 
 /** Read-only tools handed to subagents (no writes, shell, memory, or recursion). */
 export function subagentTools(): Tool[] {
-  return [readFileTool, listDirTool, globTool, grepTool, lspTool, sessionSearchTool, fetchPageTool]
+  return [readFileTool, listDirTool, globTool, grepTool, lspTool, sessionSearchTool, fetchPageTool, docsTool]
 }
 
 export function toolDefs(opts?: { memory?: boolean }): ApiToolDef[] {

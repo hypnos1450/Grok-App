@@ -188,6 +188,7 @@ function toolIcon(name: string): string {
   if (name === 'list_dir') return '🗀'
   if (name === 'glob' || name === 'grep') return '⌕'
   if (name === 'fetch_page') return '🌐'
+  if (name === 'docs') return '📖'
   if (name === 'update_plan') return '☑'
   if (name === 'memory' || name === 'skill') return '◈'
   if (name === 'session_search') return '⌕'
@@ -308,6 +309,8 @@ function summarize(item: Extract<ChatItem, { kind: 'tool' }>): string {
       const pos = input.line ? `:${input.line}${input.column ? `:${input.column}` : ''}` : ''
       return `${input.action ?? ''}${input.path ? ` ${input.path}${pos}` : ''}`.trim()
     }
+    case 'docs':
+      return `${input.action ?? ''} ${input.query ?? input.path ?? ''}${input.doc ? ` [${input.doc}]` : ''}`.trim()
     case 'glob':
     case 'grep':
       return String(input.pattern ?? '')
