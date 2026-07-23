@@ -58,6 +58,14 @@ export class AgentRun {
   private steerQueue: string[] = []
   /** Per-run tool set (static + MCP), resolved when the run starts */
   private runTools = new Map<string, Tool>()
+  /**
+   * Serializes ask_user prompts. The model can emit several ask_user calls in
+   * one parallel tool batch; the renderer shows one question card at a time, so
+   * asking them concurrently would orphan every card but the last (its promise
+   * never resolves → the turn deadlocks). Chaining forces one outstanding
+   * question at a time — later ones surface only after earlier ones are answered.
+   */
+  private questionChain: Promise<unknown> = Promise.resolve()
   constructor(
     private session: SessionRecord,
     private settings: Settings,
@@ -493,6 +501,48 @@ export class AgentRun {
     await sessionStore.save(this.session)
   }
 
+  /**
+   * Ask the user a question, but never let two questions be outstanding at once
+   * (see `questionChain`). Each call waits for the previous question to settle
+   * before it emits its own card, then hands the chain to the next caller.
+   */
+  private askQuestionSerial(q: { question: string; options?: string[] }): Promise<string> {
+    const ask = this.questionChain.then(
+      () => this.askQuestionAbortable(q),
+      () => this.askQuestionAbortable(q)
+    )
+    // Keep the chain alive regardless of this question's outcome so one
+    // rejection/cancel can't wedge every later question.
+    this.questionChain = ask.then(
+      () => undefined,
+      () => undefined
+    )
+    return ask
+  }
+
+  /**
+   * Wrap askQuestion so cancelling the run resolves the wait instead of leaving
+   * it hung on a card the user will never answer. Without this, a cancel during
+   * a pending ask_user would orphan the promise and the turn could never end.
+   */
+  private askQuestionAbortable(q: { question: string; options?: string[] }): Promise<string> {
+    if (this.abort.signal.aborted) return Promise.resolve('')
+    return new Promise<string>((resolve) => {
+      const onAbort = (): void => resolve('')
+      this.abort.signal.addEventListener('abort', onAbort, { once: true })
+      this.askQuestion(q).then(
+        (answer) => {
+          this.abort.signal.removeEventListener('abort', onAbort)
+          resolve(answer)
+        },
+        () => {
+          this.abort.signal.removeEventListener('abort', onAbort)
+          resolve('')
+        }
+      )
+    })
+  }
+
   private async runSingleTool(
     tool: Tool,
     call: ApiToolCall,
@@ -508,7 +558,7 @@ export class AgentRun {
         this.session.plan = steps
         this.emit({ type: 'plan', sessionId, steps })
       },
-      askUser: (question, options) => this.askQuestion({ question, options }),
+      askUser: (question, options) => this.askQuestionSerial({ question, options }),
       customAgents: this.settings.customAgents ?? []
     }
 

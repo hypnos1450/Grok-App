@@ -4,6 +4,18 @@ All notable changes to Conduit. Each release on GitHub carries the notes
 from its section here — the release workflow extracts them automatically when a
 version tag is pushed.
 
+## 0.5.9 — 2026-07-23
+
+**Fix: agent froze after you answered a question**
+
+- When the model asked more than one `ask_user` question in a single turn (it can emit several
+  tool calls at once), the chat only ever showed one question card at a time, so every card but
+  the last was orphaned — its promise never resolved and the turn hung on "working…" forever.
+  Questions are now serialized: each one is presented and answered before the next appears, so a
+  multi-question turn always completes.
+- Cancelling a run while a question is open now ends the turn cleanly instead of leaving it stuck
+  waiting on a card you can no longer answer.
+
 ## 0.5.8 — 2026-07-19
 
 **In-UI logo matches the app icon**
