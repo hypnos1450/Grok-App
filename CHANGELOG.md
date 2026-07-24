@@ -23,6 +23,21 @@ version tag is pushed.
   category, and an inline control to assign or change a skill's category. The
   system-prompt skills index the agent sees is grouped the same way.
 
+**AI agent builder**
+
+- **Describe an agent, get one.** The Agents tab has a new "Build an agent with AI" box:
+  write what you want the agent to do and what it should be capable of, and the model
+  drafts a ready-to-save persona — a name, role instructions, a suggested model and
+  permission mode — prefilled into the agent form for you to tweak.
+- **Skills planned for the role.** The builder inspects your installed skills and matches
+  the ones that fit the agent's job. For capabilities you don't have a skill for yet, it
+  proposes one from a curated skill catalog or, when nothing fits, a web search — shown as
+  a "skills plan" you can review.
+- **Find & install missing skills.** One click installs the planned skills: catalog entries
+  install directly, and search items are located on GitHub via web search, then installed
+  through the same validation and prompt-injection scanning as any other skill import. The
+  freshly installed skills are auto-selected for the new agent.
+
 ## 0.6.0 — 2026-07-23
 
 **LSP-powered edits: rename & quick-fix**

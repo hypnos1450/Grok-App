@@ -44,6 +44,9 @@ import { appendAudit, clearAudit, exportAuditMarkdown, listAudit } from './audit
 import { addTrust, getTrust, isTrusted, removeTrust } from './workspace-trust'
 import { createPullRequest, detectRepo } from './github'
 import { MCP_CATALOG } from './mcp-catalog'
+import { SKILL_CATALOG } from './skill-catalog'
+import { buildAgentDraft, resolveSkills } from './agent/agent-builder'
+import type { AgentBuildSkill } from '@shared/types'
 import { logsDirectory as logsDir } from './logger'
 import type {
   GitHubPrDraft,
@@ -1038,6 +1041,13 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
 
   // ---- MCP catalog
   handle('mcpCatalog:list', () => MCP_CATALOG)
+
+  // ---- skill catalog + AI agent builder
+  handle('skillCatalog:list', () => SKILL_CATALOG)
+  handle('agents:build', (_e, prompt: string) => buildAgentDraft(String(prompt ?? ''), settings))
+  handle('agents:resolveSkills', (_e, items: AgentBuildSkill[]) =>
+    resolveSkills(Array.isArray(items) ? items : [], settings)
+  )
 
   // ---- offline / auth status
   handle('status:get', async (): Promise<OfflineStatus> => {

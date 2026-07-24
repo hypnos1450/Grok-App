@@ -169,6 +169,13 @@ const api: HarnessApi = {
   mcpCatalog: {
     list: () => ipcRenderer.invoke('mcpCatalog:list')
   },
+  skillCatalog: {
+    list: () => ipcRenderer.invoke('skillCatalog:list')
+  },
+  agents: {
+    build: (prompt: string) => ipcRenderer.invoke('agents:build', prompt),
+    resolveSkills: (items) => ipcRenderer.invoke('agents:resolveSkills', items)
+  },
   status: {
     get: () => ipcRenderer.invoke('status:get'),
     probe: () => ipcRenderer.invoke('status:probe')

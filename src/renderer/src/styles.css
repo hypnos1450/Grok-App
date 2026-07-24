@@ -1796,6 +1796,90 @@ button svg {
   cursor: not-allowed;
 }
 
+/* AI agent builder */
+.agent-builder {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+  margin-bottom: 12px;
+}
+.agent-builder textarea {
+  resize: vertical;
+}
+.agent-or {
+  text-align: center;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--text-tertiary);
+  margin: 2px 0 10px;
+}
+.plan-skills {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+.plan-skill {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  background: var(--bg-input);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+.plan-skill-text {
+  flex: 1;
+  word-break: break-word;
+}
+.plan-skill-note {
+  font-size: 11.5px;
+  color: var(--text-tertiary);
+  margin-top: 3px;
+}
+.plan-skill-note.ok {
+  color: var(--ok);
+}
+.plan-skill-note.err {
+  color: var(--err);
+}
+.plan-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 2px 7px;
+  border-radius: 9px;
+  border: 1px solid var(--border);
+  color: var(--text-tertiary);
+  margin-top: 1px;
+}
+.plan-badge.installed {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+}
+.plan-badge.ok {
+  color: var(--ok);
+  border-color: color-mix(in srgb, var(--ok) 45%, transparent);
+  background: color-mix(in srgb, var(--ok) 12%, transparent);
+}
+.plan-badge.catalog,
+.plan-badge.search {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+.plan-badge.err {
+  color: var(--err);
+  border-color: color-mix(in srgb, var(--err) 45%, transparent);
+}
+
 /* Tabbed settings modal */
 .settings-modal {
   width: 560px;

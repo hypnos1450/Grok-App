@@ -1,5 +1,6 @@
 import { JSX, useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  AgentBuildSkill,
   CustomAgent,
   McpInstallPreview,
   McpServerConfig,
@@ -747,19 +748,118 @@ function McpSection(props: {
   )
 }
 
+/** Status badge + outcome line for one planned skill in the builder. */
+function PlanSkillRow({ item }: { item: AgentBuildSkill }): JSX.Element {
+  const done = (item.installedNames?.length ?? 0) > 0
+  const badge = done
+    ? 'ready'
+    : item.error
+      ? 'failed'
+      : item.status === 'installed'
+        ? 'installed'
+        : item.status === 'catalog'
+          ? 'catalog'
+          : 'search'
+  return (
+    <div className="plan-skill">
+      <span className={`plan-badge ${done ? 'ok' : item.error ? 'err' : item.status}`}>{badge}</span>
+      <span className="plan-skill-text">
+        <b>{item.capability}</b>
+        {item.reason ? <> — {item.reason}</> : null}
+        {done && <div className="plan-skill-note ok">installed: {item.installedNames!.join(', ')}</div>}
+        {item.error && <div className="plan-skill-note err">{item.error}</div>}
+        {!done && !item.error && item.status === 'search' && (
+          <div className="plan-skill-note">will search skill marketplaces for “{item.ref}”</div>
+        )}
+        {!done && !item.error && item.status === 'catalog' && (
+          <div className="plan-skill-note">from catalog · {item.install}</div>
+        )}
+      </span>
+    </div>
+  )
+}
+
+function AgentBuilder({
+  onDraft
+}: {
+  onDraft: (agent: CustomAgent, plan: AgentBuildSkill[]) => void
+}): JSX.Element {
+  const [brief, setBrief] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string | null>(null)
+
+  const build = async (): Promise<void> => {
+    if (!brief.trim() || busy) return
+    setBusy(true)
+    setErr(null)
+    try {
+      const res = await window.harness.agents.build(brief.trim())
+      onDraft(
+        {
+          id: crypto.randomUUID(),
+          name: res.name,
+          instructions: res.instructions,
+          // Pre-select skills the agent already has; missing ones get installed
+          // from the plan panel and added on resolve.
+          skills: res.skills.filter((s) => s.status === 'installed').map((s) => s.ref),
+          model: res.model,
+          permissionMode: res.permissionMode
+        },
+        res.skills
+      )
+      setBrief('')
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="agent-builder">
+      <div className="setting-label">Build an agent with AI</div>
+      <span className="setting-help">
+        Describe the agent you want and what it should be capable of. The model drafts its role,
+        model, and permissions, matches skills you already have, and finds missing ones on skill
+        marketplaces for you to install.
+      </span>
+      <textarea
+        className="login-input"
+        rows={3}
+        placeholder="e.g. An agent that reviews my Rust for concurrency bugs and can also produce a PDF report of its findings."
+        value={brief}
+        maxLength={4000}
+        disabled={busy}
+        onChange={(e) => setBrief(e.target.value)}
+      />
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <button className="btn" disabled={busy || !brief.trim()} onClick={() => void build()}>
+          {busy ? 'Designing…' : '✨ Generate agent'}
+        </button>
+      </div>
+      {err && <div className="skill-install-report err">{err}</div>}
+    </div>
+  )
+}
+
 function AgentsSection(props: {
   settings: Settings
   update: (patch: Partial<Settings>) => Promise<void>
 }): JSX.Element {
   const [skills, setSkills] = useState<SkillMeta[]>([])
   const [draft, setDraft] = useState<CustomAgent | null>(null)
+  const [plan, setPlan] = useState<AgentBuildSkill[] | null>(null)
+  const [resolving, setResolving] = useState(false)
   const agents = props.settings.customAgents ?? []
 
-  useEffect(() => {
+  const refreshSkills = useCallback(() => {
     void window.harness.skills.list().then(setSkills)
   }, [])
 
-  const startNew = (): void =>
+  useEffect(refreshSkills, [refreshSkills])
+
+  const startNew = (): void => {
+    setPlan(null)
     setDraft({
       id: crypto.randomUUID(),
       name: '',
@@ -768,6 +868,17 @@ function AgentsSection(props: {
       model: props.settings.defaultModel,
       permissionMode: 'ask'
     })
+  }
+
+  const startFromBuild = (agent: CustomAgent, builtPlan: AgentBuildSkill[]): void => {
+    setPlan(builtPlan)
+    setDraft(agent)
+  }
+
+  const closeDraft = (): void => {
+    setDraft(null)
+    setPlan(null)
+  }
 
   const saveDraft = async (): Promise<void> => {
     if (!draft) return
@@ -775,12 +886,12 @@ function AgentsSection(props: {
     if (!name) return
     const others = agents.filter((a) => a.id !== draft.id)
     await props.update({ customAgents: [...others, { ...draft, name }] })
-    setDraft(null)
+    closeDraft()
   }
 
   const remove = async (id: string): Promise<void> => {
     await props.update({ customAgents: agents.filter((a) => a.id !== id) })
-    if (draft?.id === id) setDraft(null)
+    if (draft?.id === id) closeDraft()
   }
 
   const toggleSkill = (name: string): void =>
@@ -790,10 +901,31 @@ function AgentsSection(props: {
         : d
     )
 
+  // Install the catalog / web-searched skills the builder proposed, then select
+  // the freshly installed ones in the draft.
+  const resolvePlan = async (): Promise<void> => {
+    if (!plan || resolving) return
+    setResolving(true)
+    try {
+      const updated = await window.harness.agents.resolveSkills(plan)
+      setPlan(updated)
+      const names = [...new Set(updated.flatMap((i) => i.installedNames ?? []))]
+      setDraft((d) => (d ? { ...d, skills: [...new Set([...d.skills, ...names])] } : d))
+      refreshSkills()
+    } finally {
+      setResolving(false)
+    }
+  }
+
+  const missingCount = plan?.filter((i) => i.status !== 'installed' && !i.installedNames?.length && !i.error)
+    .length ?? 0
+
   return (
     <div className="memory-section">
       {!draft && (
         <>
+          <AgentBuilder onDraft={startFromBuild} />
+          <div className="agent-or">or create one manually</div>
           {agents.length === 0 && (
             <div className="setting-help" style={{ marginBottom: 10 }}>
               No custom agents yet. Create one to give a session a focused role, a scoped set of
@@ -815,7 +947,13 @@ function AgentsSection(props: {
                   )}
                 </div>
                 <div className="agent-card-actions">
-                  <button className="mini-btn" onClick={() => setDraft({ ...a })}>
+                  <button
+                    className="mini-btn"
+                    onClick={() => {
+                      setPlan(null)
+                      setDraft({ ...a })
+                    }}
+                  >
                     Edit
                   </button>
                   <button className="mini-btn danger" onClick={() => void remove(a.id)}>
@@ -833,6 +971,36 @@ function AgentsSection(props: {
 
       {draft && (
         <div className="agent-form">
+          {plan && (
+            <div className="agent-field">
+              <span className="setting-label">Skills plan</span>
+              <span className="setting-help">
+                {plan.length === 0
+                  ? 'This agent needs no special skills beyond ordinary coding.'
+                  : 'Skills this agent needs. Installed ones are pre-selected below; install the rest from the catalog or a marketplace search.'}
+              </span>
+              {plan.length > 0 && (
+                <div className="plan-skills">
+                  {plan.map((item, i) => (
+                    <PlanSkillRow key={`${item.ref}-${i}`} item={item} />
+                  ))}
+                </div>
+              )}
+              {missingCount > 0 && (
+                <button
+                  className="btn"
+                  style={{ marginTop: 8, alignSelf: 'flex-start' }}
+                  disabled={resolving}
+                  onClick={() => void resolvePlan()}
+                >
+                  {resolving
+                    ? 'Finding & installing…'
+                    : `Find & install ${missingCount} missing skill${missingCount === 1 ? '' : 's'}`}
+                </button>
+              )}
+            </div>
+          )}
+
           <label className="agent-field">
             <span className="setting-label">Title</span>
             <input
@@ -914,7 +1082,7 @@ function AgentsSection(props: {
             <button className="mini-btn" disabled={!draft.name.trim()} onClick={() => void saveDraft()}>
               Save agent
             </button>
-            <button className="mini-btn" onClick={() => setDraft(null)}>
+            <button className="mini-btn" onClick={closeDraft}>
               Cancel
             </button>
           </div>

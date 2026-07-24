@@ -493,6 +493,45 @@ export interface McpCatalogEntry {
   envNeeds?: string[]
 }
 
+/** A known, one-click-installable skill (a "skill marketplace" entry). */
+export interface SkillCatalogEntry {
+  id: string
+  name: string
+  description: string
+  category?: string
+  /** owner/repo or github URL/subpath passed to the skill importer */
+  install: string
+}
+
+/**
+ * One capability the agent builder decided a new agent needs, and how it will
+ * be satisfied. `status` starts as the plan; `installedNames`/`error` are filled
+ * in after the user asks to resolve (install) the missing ones.
+ */
+export interface AgentBuildSkill {
+  capability: string
+  reason: string
+  /** already present · install from the curated catalog · search the web for it */
+  status: 'installed' | 'catalog' | 'search'
+  /** installed skill name, catalog id, or search query (per status) */
+  ref: string
+  /** install source (owner/repo or URL) for catalog/search, once known */
+  install?: string
+  /** skill names actually installed for this item after resolving */
+  installedNames?: string[]
+  error?: string
+}
+
+/** Draft agent the AI generated from a natural-language description. */
+export interface AgentBuildResult {
+  name: string
+  instructions: string
+  model: ModelId
+  permissionMode: PermissionMode
+  skills: AgentBuildSkill[]
+  notes?: string
+}
+
 export interface TurnChangeSummary {
   sessionId: string
   files: { path: string; kind: 'write' | 'edit' }[]
@@ -777,6 +816,15 @@ export interface HarnessApi {
   }
   mcpCatalog: {
     list(): Promise<McpCatalogEntry[]>
+  }
+  skillCatalog: {
+    list(): Promise<SkillCatalogEntry[]>
+  }
+  agents: {
+    /** Draft an agent (role, model, skills plan) from a natural-language brief */
+    build(prompt: string): Promise<AgentBuildResult>
+    /** Install the catalog / web-searched skills in a build plan; returns updated items */
+    resolveSkills(items: AgentBuildSkill[]): Promise<AgentBuildSkill[]>
   }
   status: {
     /** Network + auth health for offline banner */
