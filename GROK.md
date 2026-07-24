@@ -18,9 +18,10 @@ src/
     agent/
       loop.ts           Agent loop: tools, permissions, compaction, self-review
       provider.ts       SSE client for api.x.ai; prompt-cache-friendly messages
-      tools.ts          bash, read_file, apply_patch, write_file, list_dir, glob, grep, diagnostics, lsp, lsp_edit, docs, monitor, fetch_page, update_plan, ask_user, memory, skill, session_search, recall_history, spawn_agent, team_task, project_brief
+      tools.ts          bash, read_file, apply_patch, write_file, list_dir, glob, grep, diagnostics, lsp, lsp_edit, docs, monitor, fetch_page, update_plan, ask_user, memory, skill, session_search, recall_history, spawn_agent, team_task, project_brief, delegate_build
       apply-patch.ts    Codex-format patch parser + applier
       team.ts           team-project tools: task board (enforced QA/AppSec review gate) + shared project brief
+      builders.ts       Model B: write-capable builder roles in isolated git worktrees (delegate_build), diffs merged back
       lsp/              language-server client: rpc.ts, servers.ts, client.ts, manager.ts, edit.ts (WorkspaceEdit applier)
       docs.ts           devdocs.io documentation client (disk-cached, offline-tolerant)
       env.ts            credential scrub shared by bash + LSP spawns
@@ -64,6 +65,7 @@ npm run rebuild:pty      # if node-pty native module breaks
 - **Models:** UI/session id `grok-build-0.1` maps to API `grok-4.5` in `profiles.ts` — do not rename the internal id (breaks saved sessions). `grok-4.3` is 1:1.
 - **Agent tools:** `apply_patch` (Codex format) is the primary editor; `write_file` for new files/full rewrites (`edit_file` was removed). `lsp` (read) for per-file diagnostics/navigation; `lsp_edit` (write) applies a server-computed `rename` (symbol across files) or `fix` (quick-fix) via `lsp/edit.ts`, jailed + checkpoint-tracked; `diagnostics` for project-wide checks; `docs` for versioned reference lookups. Read-only tools parallelize; mutations/commands are permission-gated. Tools whose changed files aren't derivable from their input report them via `ctx.onFileWritten` for the Review panel.
 - **Custom agents:** `Settings.customAgents` (validated in `security.ts`); a session's `agentId` selects one → its instructions + scoped-skills index inject into the prompt (`profiles.assemble`), and its `model` + `permissionMode` override the session (`loop.effectiveMode`). `spawn_agent` can delegate to one by name.
+- **Teams:** `Settings.teams` (validated in `security.ts`); a session's `meta.teamId` makes it a team project — the orchestrator (`team.orchestratorId`) becomes the active agent, `team_task`/`project_brief`/`delegate_build` unlock, and the orchestration prompt (`profiles.teamOrchestrationBlock`) injects. Board/brief live on `SessionRecord.teamState`, mutated via `ctx.team` and pushed to the renderer via the `team-state` event (Board/Brief dock panels). The **QA/AppSec review gate is enforced in code** (`team.gateBlockers`), not the prompt. **Model B** (`builders.ts`): `delegate_build` runs write-capable role subagents in isolated `git worktree`s off HEAD and applies their diffs via `git apply --3way` through checkpoints; it's `command`-kind (prompts even in auto-edit) and gated on `enableTeamBuilders` + a git repo with a commit.
 - **Prompt-cache discipline:** stable system-prompt prefix (`HARNESS_CORE` first in both profiles); append-only `apiMessages` until compaction. Memory/skills/projectDoc/git snapshots freeze at first turn of a session.
 - **Sessions:** schema-versioned (`SCHEMA_VERSION`); add migrations in `sessions.ts` `migrate()` as `if (v < N)`.
 - **Project doc load order:** `AGENTS.md` → `CLAUDE.md` → `GROK.md` (first non-empty wins); truncated at 6k chars; frozen per session.

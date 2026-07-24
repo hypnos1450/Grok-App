@@ -4,6 +4,28 @@ All notable changes to Conduit. Each release on GitHub carries the notes
 from its section here — the release workflow extracts them automatically when a
 version tag is pushed.
 
+## 0.7.0 — 2026-07-24
+
+**Agent teams — run a team of role agents on a project**
+
+- **Start a team project** from Home: pick a team and a folder and the orchestrator (CEO) runs the
+  project. A prebuilt **App Dev Team** (CEO, Product Manager, Software Architect, Lead Developer,
+  UI/UX Designer, QA Tester, Application Security Dev) ships ready to use; create/edit your own in
+  **Settings → Teams**.
+- **Task board + project brief.** The orchestrator manages a shared board (`team_task`) — create,
+  assign, review, and close tasks — and a living **project brief** (`project_brief`, saved to
+  `.conduit/PROJECT_BRIEF.md`) that every role reads. Both render live in **Board** and **Brief**
+  panels in the right dock, and delegations show up as **labeled role voices** in the chat.
+- **Enforced QA/AppSec gate.** A task can't be closed until every required reviewer role has recorded
+  a passing review — enforced in code, so the model can't skip it. A failing review sends the task
+  back for rework.
+- **Two ways to work.** Advisor roles run read-only and return specs, designs, and pass/fail verdicts
+  while the orchestrator writes the code — or, with **write-capable builders** (`delegate_build`,
+  toggle in Settings → Teams), designated roles implement autonomously in **isolated git worktrees**
+  and their diffs are merged back into the working tree for review. Builds are parallel-safe and
+  rewindable; the merge is confirmed before it runs, and git commits always ask first in a team
+  project.
+
 ## 0.6.2 — 2026-07-24
 
 **Agent builder: suggested skills for the agent's stack**
