@@ -4,6 +4,22 @@ All notable changes to Conduit. Each release on GitHub carries the notes
 from its section here — the release workflow extracts them automatically when a
 version tag is pushed.
 
+## 0.6.0 — 2026-07-23
+
+**LSP-powered edits: rename & quick-fix**
+
+- New `lsp_edit` tool lets the agent apply changes the language server computes, not just read from it:
+  - **`rename`** — rename the symbol at a position to a new name across *every* file that uses it, as one
+    atomic edit that resolves imports and scoping (it will alias an import rather than break it). Far more
+    precise than find/replace.
+  - **`fix`** — list the quick-fixes the server offers for a diagnostic (add missing import, remove unused,
+    …), then apply one by index.
+- Every edit is jailed to the workspace (an edit reaching outside any file is refused entirely — no
+  half-applied rename), routed through the checkpoint/rewind snapshot, and shown as a diff in the Review
+  panel. Works with the same servers as `lsp` (TypeScript/JS, Python, Go, Rust, C/C++).
+- Verified against a live `typescript-language-server`, including a cross-file rename and an
+  edit-bearing quick-fix.
+
 ## 0.5.9 — 2026-07-23
 
 **Fix: agent froze after you answered a question**

@@ -1,7 +1,7 @@
 {
   "name": "conduit",
   "productName": "Conduit",
-  "version": "0.5.9",
+  "version": "0.6.0",
   "description": "Conduit — desktop agent for xAI Grok 4.5 and Grok 4.3, with xAI subscription OAuth",
   "main": "out/main/index.js",
   "author": {

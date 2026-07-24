@@ -12,7 +12,8 @@ import { parsePatch, applyHunks, PatchError } from './apply-patch'
 import { scrubCredentials } from './env'
 import { fetchDocPage, loadCatalog, loadIndex, resolveDocset, searchIndex } from './docs'
 import { lspManager } from './lsp/manager'
-import { LspDiagnostic, LspDocumentSymbol, LspLocation, LspLocationLink } from './lsp/client'
+import { LspCodeAction, LspDiagnostic, LspDocumentSymbol, LspLocation, LspLocationLink, LspRange } from './lsp/client'
+import { AppliedFile, applyWorkspaceEdit } from './lsp/edit'
 import { MemoryTarget, memoryStore } from './memory'
 import { skillStore } from './skills'
 import { spawnAgentTool } from './subagent'
@@ -29,6 +30,10 @@ export interface ToolContext {
   signal: AbortSignal
   /** Called with the absolute path before a file tool mutates it (checkpoints) */
   onBeforeMutate?: (absPath: string) => Promise<void>
+  /** Report a file the tool changed (workspace-relative path) for the turn's
+   *  Review panel — used by tools whose changes aren't derivable from the input
+   *  (e.g. lsp_edit rename, which can touch many files). */
+  onFileWritten?: (relPath: string, kind: 'write' | 'edit') => void
   /** Called when the agent publishes a plan via update_plan */
   onPlan?: (steps: PlanStep[]) => void
   /** Pause and ask the user a question; resolves with their answer ('' if declined). */
@@ -551,6 +556,170 @@ const lspTool: Tool = {
       return { ok: true, output: clamp(`${locs.length} reference${locs.length === 1 ? '' : 's'}:\n${await formatLocations(ctx.cwd, locs, 80)}`) }
     }
     return { ok: false, output: `Unknown action "${action}". Use diagnostics, definition, references, hover, symbols, or status.` }
+  }
+}
+
+// ------------------------------------------------------------- lsp_edit
+
+const IDENTIFIER_RE = /^[A-Za-z_$][\w$]*$/
+
+function formatApplied(verb: string, files: AppliedFile[], resourceOps: string[]): string {
+  const header = `${verb} — ${files.length} file${files.length === 1 ? '' : 's'} changed:`
+  const diffs = files.map((f) => `--- ${f.rel}\n${unifiedDiff(f.before, f.after)}`).join('\n')
+  const note = resourceOps.length
+    ? `\n\nNote: the server also requested file ${[...new Set(resourceOps)].join('/')} operation(s), which lsp_edit does not perform.`
+    : ''
+  return clamp(`${header}\n${diffs}${note}`)
+}
+
+const lspEditTool: Tool = {
+  name: 'lsp_edit',
+  kind: 'write',
+  def: {
+    type: 'function',
+    function: {
+      name: 'lsp_edit',
+      description:
+        'Apply a language-server-computed edit across the whole workspace — precise where find/replace is not. Actions: ' +
+        '"rename" — rename the symbol at line/column to `new_name` in every file that uses it (resolving imports and scoping) as one atomic edit; ' +
+        '"fix" — apply a quick-fix the server offers for a diagnostic (add missing import, remove unused, etc.): call WITHOUT `index` to list the numbered options, then again WITH `index` to apply one. ' +
+        'Positions are 1-based and must point AT the symbol (rename) or the error line (fix). Only files inside the workspace are edited; an edit reaching outside is refused entirely. ' +
+        'Uses the same servers as the lsp tool (TypeScript/JS, Python, Go, Rust, C/C++ when installed).',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: { type: 'string', enum: ['rename', 'fix'] },
+          path: { type: 'string', description: 'File path relative to the workspace' },
+          line: { type: 'number', description: '1-based line of the symbol (rename) or error (fix)' },
+          column: { type: 'number', description: '1-based column of the symbol (rename)' },
+          new_name: { type: 'string', description: 'New identifier (rename only)' },
+          index: {
+            type: 'number',
+            description: 'Which listed fix to apply (fix only); omit first to list the options'
+          }
+        },
+        required: ['action', 'path', 'line']
+      }
+    }
+  },
+  summarize: (input) => {
+    const pos = input.line ? `:${input.line}${input.column ? `:${input.column}` : ''}` : ''
+    if (input.action === 'rename') return `lsp rename ${input.path}${pos} → ${input.new_name ?? '?'}`
+    return `lsp fix ${input.path}${pos}${input.index !== undefined ? ` #${input.index}` : ''}`
+  },
+  preview: async (input) => {
+    if (input.action === 'rename') {
+      return `Rename the symbol at ${input.path}:${input.line} to "${input.new_name}" across the workspace.`
+    }
+    if (input.index !== undefined) {
+      return `Apply language-server fix #${input.index} at ${input.path}:${input.line}.`
+    }
+    return undefined // listing fixes is read-only; no preview needed
+  },
+  run: async (input, ctx) => {
+    const action = String(input.action ?? '')
+    const abs = resolveInCwd(ctx.cwd, str(input, 'path'))
+    if (!fs.existsSync(abs)) return { ok: false, output: `File not found: ${input.path}` }
+    if (!input.line) {
+      return { ok: false, output: `Action "${action}" needs \`line\` pointing at the symbol/error.` }
+    }
+    let client
+    try {
+      client = await lspManager.clientFor(ctx.cwd, abs)
+    } catch (e) {
+      return { ok: false, output: e instanceof Error ? e.message : String(e) }
+    }
+    const { uri, diagnosticsSettled } = await client.syncFile(abs)
+    const position = {
+      line: Math.max(0, Math.trunc(Number(input.line)) - 1),
+      character: Math.max(0, (Math.trunc(Number(input.column)) || 1) - 1)
+    }
+    const where = `${input.path}:${input.line}:${input.column ?? 1}`
+
+    const finishApply = async (
+      verb: string,
+      edit: Parameters<typeof applyWorkspaceEdit>[1]
+    ): Promise<ToolResult> => {
+      const result = await applyWorkspaceEdit(ctx.cwd, edit, ctx.onBeforeMutate)
+      if (result.outOfWorkspace.length) {
+        return {
+          ok: false,
+          output: `Refused: this edit would touch ${result.outOfWorkspace.length} file(s) outside the workspace. Nothing was changed.`
+        }
+      }
+      if (!result.files.length) return { ok: true, output: `${verb}: no changes were needed.` }
+      // Re-sync changed files so later lsp diagnostics reflect the new text, and
+      // record them for the turn's Review panel + checkpoint diff.
+      for (const f of result.files) {
+        ctx.onFileWritten?.(f.rel, 'edit')
+        await client.syncFile(f.abs).catch(() => undefined)
+      }
+      return { ok: true, output: formatApplied(verb, result.files, result.resourceOps) }
+    }
+
+    if (action === 'rename') {
+      if (!client.canRename) {
+        return { ok: false, output: `The ${client.spec.id} language server does not support rename.` }
+      }
+      const newName = str(input, 'new_name', false)
+      if (!IDENTIFIER_RE.test(newName)) {
+        return { ok: false, output: `Provide a valid identifier in \`new_name\` (got "${newName}").` }
+      }
+      let edit
+      try {
+        edit = await client.rename(uri, position, newName)
+      } catch (e) {
+        return { ok: false, output: `Rename failed: ${e instanceof Error ? e.message : String(e)}` }
+      }
+      if (!edit) return { ok: false, output: `Nothing renameable at ${where} — point at a symbol name.` }
+      return finishApply(`Renamed to "${newName}"`, edit)
+    }
+
+    if (action === 'fix') {
+      if (!client.canCodeAction) {
+        return { ok: false, output: `The ${client.spec.id} language server does not offer code actions.` }
+      }
+      if (diagnosticsSettled) await diagnosticsSettled
+      const onLine = client
+        .diagnosticsFor(uri)
+        .filter((d) => d.range.start.line <= position.line && d.range.end.line >= position.line)
+      const range: LspRange = onLine[0]?.range ?? { start: position, end: position }
+      let actions: LspCodeAction[]
+      try {
+        actions = await client.codeActions(uri, range, onLine)
+      } catch (e) {
+        return { ok: false, output: `Could not fetch fixes: ${e instanceof Error ? e.message : String(e)}` }
+      }
+      const appliable = actions.filter((a) => a && a.edit && !a.disabled)
+      if (input.index === undefined) {
+        if (!appliable.length) {
+          const cmdOnly = actions.filter((a) => a && a.command && !a.edit && !a.disabled).length
+          return {
+            ok: true,
+            output: cmdOnly
+              ? `No directly-appliable fixes at ${input.path}:${input.line}. ${cmdOnly} command-based action(s) exist but require server command execution, which lsp_edit doesn't run.`
+              : `No fixes offered at ${input.path}:${input.line}.`
+          }
+        }
+        const list = appliable
+          .map((a, i) => `  ${i}. ${a.title}${a.kind ? ` [${a.kind}]` : ''}`)
+          .join('\n')
+        return {
+          ok: true,
+          output: `Fixes at ${input.path}:${input.line} — re-run with \`index\` to apply one:\n${list}`
+        }
+      }
+      const chosen = appliable[Math.trunc(Number(input.index))]
+      if (!chosen) {
+        return {
+          ok: false,
+          output: `No fix #${input.index} (there ${appliable.length === 1 ? 'is 1' : `are ${appliable.length}`}). Re-run without \`index\` to list them.`
+        }
+      }
+      return finishApply(`Applied fix "${chosen.title}"`, chosen.edit!)
+    }
+
+    return { ok: false, output: `Unknown action "${action}". Use rename or fix.` }
   }
 }
 
@@ -1587,7 +1756,7 @@ const askUserTool: Tool = {
 }
 
 export const TOOLS: Tool[] = [
-  bashTool, monitorTool, diagnosticsTool, lspTool, readFileTool, applyPatchTool, writeFileTool, listDirTool, globTool, grepTool,
+  bashTool, monitorTool, diagnosticsTool, lspTool, lspEditTool, readFileTool, applyPatchTool, writeFileTool, listDirTool, globTool, grepTool,
   fetchPageTool, docsTool, updatePlanTool, askUserTool, memoryTool, skillTool, sessionSearchTool, recallHistoryTool,
   spawnAgentTool
 ]

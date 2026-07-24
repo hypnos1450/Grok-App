@@ -28,7 +28,33 @@ const range = (line) => ({ start: { line, character: 4 }, end: { line, character
 function handle(msg) {
   const { id, method, params } = msg
   if (method === 'initialize') {
-    send({ jsonrpc: '2.0', id, result: { capabilities: {} } })
+    send({
+      jsonrpc: '2.0',
+      id,
+      result: { capabilities: { renameProvider: true, codeActionProvider: true } }
+    })
+  } else if (method === 'textDocument/rename') {
+    // Rename the 6-char span on line 0 (matches range()) in the same file.
+    const uri = params.textDocument.uri
+    send({
+      jsonrpc: '2.0',
+      id,
+      result: { changes: { [uri]: [{ range: range(0), newText: params.newName }] } }
+    })
+  } else if (method === 'textDocument/codeAction') {
+    const uri = params.textDocument.uri
+    send({
+      jsonrpc: '2.0',
+      id,
+      result: [
+        {
+          title: 'Fix it',
+          kind: 'quickfix',
+          edit: { changes: { [uri]: [{ range: range(0), newText: 'fixed' }] } }
+        },
+        { title: 'Run command', kind: 'source', command: { command: 'noop', title: 'noop' } }
+      ]
+    })
   } else if (method === 'textDocument/didOpen' || method === 'textDocument/didChange') {
     const { uri, version } = params.textDocument
     // Publish asynchronously, like a real server computing diagnostics.

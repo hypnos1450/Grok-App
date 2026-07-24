@@ -47,6 +47,30 @@ export interface LspDocumentSymbol {
   containerName?: string
 }
 
+export interface LspTextEdit {
+  range: LspRange
+  newText: string
+}
+
+/** A rename/code-action result: per-file edits, in either LSP encoding. */
+export interface LspWorkspaceEdit {
+  changes?: Record<string, LspTextEdit[]>
+  documentChanges?: Array<
+    | { textDocument?: { uri?: string }; edits?: LspTextEdit[] }
+    | { kind: string } // resource op (create/rename/delete file) — not applied
+  >
+}
+
+/** A quick-fix / refactor offered by the server for a diagnostic or range. */
+export interface LspCodeAction {
+  title: string
+  kind?: string
+  diagnostics?: LspDiagnostic[]
+  edit?: LspWorkspaceEdit
+  command?: { command: string; title?: string; arguments?: unknown[] }
+  disabled?: { reason: string }
+}
+
 interface OpenDoc {
   version: number
   text: string
@@ -64,6 +88,7 @@ export class LspClient {
   private diagWaiters = new Map<string, Array<() => void>>()
   private stderrTail = ''
   private initPromise: Promise<void>
+  private serverCapabilities: Record<string, unknown> = {}
   lastUsed = Date.now()
 
   constructor(
@@ -131,7 +156,7 @@ export class LspClient {
 
   private async initialize(): Promise<void> {
     const rootUri = pathToFileURL(this.root).href
-    await this.conn.request(
+    const result = (await this.conn.request(
       'initialize',
       {
         processId: process.pid,
@@ -144,14 +169,36 @@ export class LspClient {
             hover: { contentFormat: ['markdown', 'plaintext'] },
             definition: { linkSupport: true },
             references: {},
-            documentSymbol: { hierarchicalDocumentSymbolSupport: true }
+            documentSymbol: { hierarchicalDocumentSymbolSupport: true },
+            rename: { prepareSupport: false },
+            codeAction: {
+              // Ask for CodeAction *objects* (with their edits), not bare Commands.
+              codeActionLiteralSupport: {
+                codeActionKind: { valueSet: ['quickfix', 'refactor', 'source'] }
+              }
+            }
           },
           workspace: { configuration: true, workspaceFolders: true }
         }
       },
       INIT_TIMEOUT_MS
-    )
+    )) as { capabilities?: Record<string, unknown> } | null
+    this.serverCapabilities = result?.capabilities ?? {}
     this.conn.notify('initialized', {})
+  }
+
+  /** Whether the server advertised a capability (true or an options object). */
+  private hasCapability(name: string): boolean {
+    const v = this.serverCapabilities[name]
+    return v === true || (typeof v === 'object' && v !== null)
+  }
+
+  get canRename(): boolean {
+    return this.hasCapability('renameProvider')
+  }
+
+  get canCodeAction(): boolean {
+    return this.hasCapability('codeActionProvider')
   }
 
   /**
@@ -236,6 +283,33 @@ export class LspClient {
       { textDocument: { uri } },
       REQUEST_TIMEOUT_MS
     )
+  }
+
+  /** Rename the symbol at `position` to `newName`. Returns a WorkspaceEdit
+   *  spanning every file that references it, or null if the server declines. */
+  async rename(uri: string, position: LspPosition, newName: string): Promise<LspWorkspaceEdit | null> {
+    this.lastUsed = Date.now()
+    return (await this.conn.request(
+      'textDocument/rename',
+      { textDocument: { uri }, position, newName },
+      REQUEST_TIMEOUT_MS
+    )) as LspWorkspaceEdit | null
+  }
+
+  /** Quick-fixes/refactors the server offers for `range`, given the diagnostics
+   *  in play there. Returns a mix of CodeAction objects and bare Commands. */
+  async codeActions(
+    uri: string,
+    range: LspRange,
+    diagnostics: LspDiagnostic[]
+  ): Promise<LspCodeAction[]> {
+    this.lastUsed = Date.now()
+    const res = await this.conn.request(
+      'textDocument/codeAction',
+      { textDocument: { uri }, range, context: { diagnostics } },
+      REQUEST_TIMEOUT_MS
+    )
+    return Array.isArray(res) ? (res as LspCodeAction[]) : []
   }
 
   /** Polite shutdown with a hard kill backstop. */

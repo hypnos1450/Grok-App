@@ -523,6 +523,10 @@ export class AgentRun {
       sessionId,
       signal: this.abort.signal,
       onBeforeMutate: (absPath) => recordOriginal(this.session, this.checkpointId, absPath),
+      onFileWritten: (relPath, kind) => {
+        this.session.lastTurnChanges = this.session.lastTurnChanges ?? []
+        this.session.lastTurnChanges.push({ path: relPath, kind })
+      },
       onPlan: (steps) => {
         this.session.plan = steps
         this.emit({ type: 'plan', sessionId, steps })

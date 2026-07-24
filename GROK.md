@@ -18,9 +18,9 @@ src/
     agent/
       loop.ts           Agent loop: tools, permissions, compaction, self-review
       provider.ts       SSE client for api.x.ai; prompt-cache-friendly messages
-      tools.ts          bash, read_file, apply_patch, write_file, list_dir, glob, grep, diagnostics, lsp, docs, monitor, fetch_page, update_plan, ask_user, memory, skill, session_search, recall_history, spawn_agent
+      tools.ts          bash, read_file, apply_patch, write_file, list_dir, glob, grep, diagnostics, lsp, lsp_edit, docs, monitor, fetch_page, update_plan, ask_user, memory, skill, session_search, recall_history, spawn_agent
       apply-patch.ts    Codex-format patch parser + applier
-      lsp/              language-server client: rpc.ts, servers.ts, client.ts, manager.ts
+      lsp/              language-server client: rpc.ts, servers.ts, client.ts, manager.ts, edit.ts (WorkspaceEdit applier)
       docs.ts           devdocs.io documentation client (disk-cached, offline-tolerant)
       env.ts            credential scrub shared by bash + LSP spawns
       profiles.ts       Per-model prompts, budgets, apiModel mapping, custom-agent persona blocks
@@ -61,7 +61,7 @@ npm run rebuild:pty      # if node-pty native module breaks
 - **Shared contract:** all cross-process shapes live in `src/shared/types.ts`. Preload implements `HarnessApi`; main handlers must stay in sync.
 - **Style:** single quotes, semicolons, 2-space indent, explicit return types on exported functions. Prefer `node:` imports (`node:fs`, `node:path`). File-top comments explain module purpose.
 - **Models:** UI/session id `grok-build-0.1` maps to API `grok-4.5` in `profiles.ts` — do not rename the internal id (breaks saved sessions). `grok-4.3` is 1:1.
-- **Agent tools:** `apply_patch` (Codex format) is the primary editor; `write_file` for new files/full rewrites (`edit_file` was removed). `lsp` for per-file diagnostics/navigation, `diagnostics` for project-wide checks, `docs` for versioned reference lookups. Read-only tools parallelize; mutations/commands are permission-gated.
+- **Agent tools:** `apply_patch` (Codex format) is the primary editor; `write_file` for new files/full rewrites (`edit_file` was removed). `lsp` (read) for per-file diagnostics/navigation; `lsp_edit` (write) applies a server-computed `rename` (symbol across files) or `fix` (quick-fix) via `lsp/edit.ts`, jailed + checkpoint-tracked; `diagnostics` for project-wide checks; `docs` for versioned reference lookups. Read-only tools parallelize; mutations/commands are permission-gated. Tools whose changed files aren't derivable from their input report them via `ctx.onFileWritten` for the Review panel.
 - **Custom agents:** `Settings.customAgents` (validated in `security.ts`); a session's `agentId` selects one → its instructions + scoped-skills index inject into the prompt (`profiles.assemble`), and its `model` + `permissionMode` override the session (`loop.effectiveMode`). `spawn_agent` can delegate to one by name.
 - **Prompt-cache discipline:** stable system-prompt prefix (`HARNESS_CORE` first in both profiles); append-only `apiMessages` until compaction. Memory/skills/projectDoc/git snapshots freeze at first turn of a session.
 - **Sessions:** schema-versioned (`SCHEMA_VERSION`); add migrations in `sessions.ts` `migrate()` as `if (v < N)`.

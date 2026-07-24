@@ -141,6 +141,25 @@ describe('LspClient against a fake server', () => {
     expect(syms[0].children?.[0].name).toBe('bar')
   })
 
+  it('detects rename/codeAction capabilities and returns a rename edit', async () => {
+    const c = await setup()
+    expect(c.canRename).toBe(true)
+    expect(c.canCodeAction).toBe(true)
+    const { uri } = await c.syncFile(file)
+    const edit = await c.rename(uri, { line: 0, character: 6 }, 'renamed')
+    expect(edit?.changes?.[uri]?.[0]?.newText).toBe('renamed')
+  })
+
+  it('returns code actions, including edit-bearing and command-only ones', async () => {
+    const c = await setup()
+    const { uri } = await c.syncFile(file)
+    const actions = await c.codeActions(uri, { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, [])
+    expect(actions.map((a) => a.title)).toEqual(['Fix it', 'Run command'])
+    expect(actions[0].edit).toBeTruthy()
+    expect(actions[1].edit).toBeUndefined()
+    expect(actions[1].command?.command).toBe('noop')
+  })
+
   it('shuts the server down on dispose', async () => {
     const c = await setup()
     c.dispose()
