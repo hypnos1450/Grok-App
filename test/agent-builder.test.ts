@@ -4,6 +4,7 @@ import { classifySkill, namesFromReport, type DesignSkill } from '../src/main/ag
 const base: DesignSkill = {
   capability: '',
   reason: '',
+  optional: false,
   installedSkill: null,
   catalogId: null,
   searchQuery: null
@@ -58,6 +59,19 @@ describe('classifySkill', () => {
 
   it('returns null when a capability cannot be satisfied at all', () => {
     expect(classifySkill({ ...base, capability: 'Vague thing' }, installed)).toBeNull()
+  })
+
+  it('defaults optional to false for a required skill', () => {
+    const item = classifySkill({ ...base, capability: 'Word docs', catalogId: 'docx' }, installed)
+    expect(item?.optional).toBe(false)
+  })
+
+  it('carries the optional flag through for a suggested skill', () => {
+    const item = classifySkill(
+      { ...base, optional: true, capability: 'Rust review', searchQuery: 'rust best practices skill' },
+      installed
+    )
+    expect(item).toMatchObject({ status: 'search', optional: true })
   })
 })
 

@@ -513,6 +513,11 @@ export interface AgentBuildSkill {
   reason: string
   /** already present · install from the curated catalog · search the web for it */
   status: 'installed' | 'catalog' | 'search'
+  /**
+   * true = a nice-to-have the builder surfaced for the agent's domain/stack that
+   * the user opts into per-item; false/undefined = a skill the agent needs.
+   */
+  optional?: boolean
   /** installed skill name, catalog id, or search query (per status) */
   ref: string
   /** install source (owner/repo or URL) for catalog/search, once known */

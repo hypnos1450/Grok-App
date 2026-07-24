@@ -748,8 +748,20 @@ function McpSection(props: {
   )
 }
 
-/** Status badge + outcome line for one planned skill in the builder. */
-function PlanSkillRow({ item }: { item: AgentBuildSkill }): JSX.Element {
+/** Status badge + outcome line for one planned skill in the builder. When
+ *  `onInstall` is given (suggested skills), the row shows a per-item install
+ *  button so the user opts into each one. */
+function PlanSkillRow({
+  item,
+  onInstall,
+  installing,
+  disabled
+}: {
+  item: AgentBuildSkill
+  onInstall?: () => void
+  installing?: boolean
+  disabled?: boolean
+}): JSX.Element {
   const done = (item.installedNames?.length ?? 0) > 0
   const badge = done
     ? 'ready'
@@ -760,6 +772,7 @@ function PlanSkillRow({ item }: { item: AgentBuildSkill }): JSX.Element {
         : item.status === 'catalog'
           ? 'catalog'
           : 'search'
+  const canInstall = !!onInstall && !done
   return (
     <div className="plan-skill">
       <span className={`plan-badge ${done ? 'ok' : item.error ? 'err' : item.status}`}>{badge}</span>
@@ -775,6 +788,11 @@ function PlanSkillRow({ item }: { item: AgentBuildSkill }): JSX.Element {
           <div className="plan-skill-note">from catalog · {item.install}</div>
         )}
       </span>
+      {canInstall && (
+        <button className="mini-btn" disabled={installing || disabled} onClick={onInstall}>
+          {installing ? 'Installing…' : item.status === 'installed' ? 'Add' : 'Install'}
+        </button>
+      )}
     </div>
   )
 }
@@ -799,9 +817,11 @@ function AgentBuilder({
           id: crypto.randomUUID(),
           name: res.name,
           instructions: res.instructions,
-          // Pre-select skills the agent already has; missing ones get installed
-          // from the plan panel and added on resolve.
-          skills: res.skills.filter((s) => s.status === 'installed').map((s) => s.ref),
+          // Pre-select required skills the agent already has; suggested ones are
+          // opt-in, and missing ones get installed from the plan panel on resolve.
+          skills: res.skills
+            .filter((s) => s.status === 'installed' && !s.optional)
+            .map((s) => s.ref),
           model: res.model,
           permissionMode: res.permissionMode
         },
@@ -849,7 +869,7 @@ function AgentsSection(props: {
   const [skills, setSkills] = useState<SkillMeta[]>([])
   const [draft, setDraft] = useState<CustomAgent | null>(null)
   const [plan, setPlan] = useState<AgentBuildSkill[] | null>(null)
-  const [resolving, setResolving] = useState(false)
+  const [resolvingIdx, setResolvingIdx] = useState<number[]>([])
   const agents = props.settings.customAgents ?? []
 
   const refreshSkills = useCallback(() => {
@@ -901,24 +921,39 @@ function AgentsSection(props: {
         : d
     )
 
-  // Install the catalog / web-searched skills the builder proposed, then select
-  // the freshly installed ones in the draft.
-  const resolvePlan = async (): Promise<void> => {
-    if (!plan || resolving) return
-    setResolving(true)
+  const isMissing = (i: AgentBuildSkill): boolean =>
+    i.status !== 'installed' && !i.installedNames?.length && !i.error
+
+  // Resolve (install) the plan items at the given indices, write the results
+  // back in place, and select any freshly installed skills in the draft.
+  const resolveIndices = async (indices: number[]): Promise<void> => {
+    if (!plan || !indices.length || resolvingIdx.length) return
+    setResolvingIdx(indices)
     try {
-      const updated = await window.harness.agents.resolveSkills(plan)
-      setPlan(updated)
+      const updated = await window.harness.agents.resolveSkills(indices.map((i) => plan[i]))
+      setPlan((p) => {
+        if (!p) return p
+        const next = [...p]
+        indices.forEach((idx, k) => {
+          if (updated[k]) next[idx] = updated[k]
+        })
+        return next
+      })
       const names = [...new Set(updated.flatMap((i) => i.installedNames ?? []))]
-      setDraft((d) => (d ? { ...d, skills: [...new Set([...d.skills, ...names])] } : d))
+      if (names.length) {
+        setDraft((d) => (d ? { ...d, skills: [...new Set([...d.skills, ...names])] } : d))
+      }
       refreshSkills()
     } finally {
-      setResolving(false)
+      setResolvingIdx([])
     }
   }
 
-  const missingCount = plan?.filter((i) => i.status !== 'installed' && !i.installedNames?.length && !i.error)
-    .length ?? 0
+  const rows = (plan ?? []).map((item, i) => ({ item, i }))
+  const requiredRows = rows.filter((r) => !r.item.optional)
+  const suggestedRows = rows.filter((r) => r.item.optional)
+  const requiredMissing = requiredRows.filter((r) => isMissing(r.item)).map((r) => r.i)
+  const resolving = resolvingIdx.length > 0
 
   return (
     <div className="memory-section">
@@ -974,29 +1009,59 @@ function AgentsSection(props: {
           {plan && (
             <div className="agent-field">
               <span className="setting-label">Skills plan</span>
-              <span className="setting-help">
-                {plan.length === 0
-                  ? 'This agent needs no special skills beyond ordinary coding.'
-                  : 'Skills this agent needs. Installed ones are pre-selected below; install the rest from the catalog or a marketplace search.'}
-              </span>
-              {plan.length > 0 && (
-                <div className="plan-skills">
-                  {plan.map((item, i) => (
-                    <PlanSkillRow key={`${item.ref}-${i}`} item={item} />
-                  ))}
-                </div>
+              {plan.length === 0 && (
+                <span className="setting-help">
+                  This agent needs no special skills beyond ordinary coding.
+                </span>
               )}
-              {missingCount > 0 && (
-                <button
-                  className="btn"
-                  style={{ marginTop: 8, alignSelf: 'flex-start' }}
-                  disabled={resolving}
-                  onClick={() => void resolvePlan()}
-                >
-                  {resolving
-                    ? 'Finding & installing…'
-                    : `Find & install ${missingCount} missing skill${missingCount === 1 ? '' : 's'}`}
-                </button>
+
+              {requiredRows.length > 0 && (
+                <>
+                  <span className="setting-help">
+                    Skills this agent needs. Installed ones are pre-selected below; install the rest
+                    from the catalog or a marketplace search.
+                  </span>
+                  <div className="plan-skills">
+                    {requiredRows.map(({ item, i }) => (
+                      <PlanSkillRow key={`req-${item.ref}-${i}`} item={item} />
+                    ))}
+                  </div>
+                  {requiredMissing.length > 0 && (
+                    <button
+                      className="btn"
+                      style={{ marginTop: 8, alignSelf: 'flex-start' }}
+                      disabled={resolving}
+                      onClick={() => void resolveIndices(requiredMissing)}
+                    >
+                      {resolving
+                        ? 'Finding & installing…'
+                        : `Find & install ${requiredMissing.length} missing skill${requiredMissing.length === 1 ? '' : 's'}`}
+                    </button>
+                  )}
+                </>
+              )}
+
+              {suggestedRows.length > 0 && (
+                <>
+                  <span className="setting-label" style={{ marginTop: requiredRows.length ? 12 : 0 }}>
+                    Suggested skills
+                  </span>
+                  <span className="setting-help">
+                    Optional skills that could help with this agent’s stack. Install any you want —
+                    each is added to the agent once installed.
+                  </span>
+                  <div className="plan-skills">
+                    {suggestedRows.map(({ item, i }) => (
+                      <PlanSkillRow
+                        key={`sug-${item.ref}-${i}`}
+                        item={item}
+                        installing={resolvingIdx.includes(i)}
+                        disabled={resolving}
+                        onInstall={() => void resolveIndices([i])}
+                      />
+                    ))}
+                  </div>
+                </>
               )}
             </div>
           )}

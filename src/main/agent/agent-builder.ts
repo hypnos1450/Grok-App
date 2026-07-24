@@ -23,7 +23,8 @@ const log = logger('agent-builder')
 
 const MODEL_IDS: ModelId[] = ['grok-build-0.1', 'grok-4.3']
 const PERMISSION_MODES: PermissionMode[] = ['ask', 'auto-edit', 'full-auto', 'plan-only']
-const MAX_SKILLS = 8
+const MAX_REQUIRED = 8
+const MAX_SUGGESTED = 6
 
 // ------------------------------------------------------------- design phase
 
@@ -41,12 +42,14 @@ const DESIGN_SCHEMA: Record<string, unknown> = {
         properties: {
           capability: { type: 'string' },
           reason: { type: 'string' },
+          // true = a domain/stack suggestion the user opts into; false = needed.
+          optional: { type: 'boolean' },
           // Exactly one of these should be non-null (installed > catalog > search).
           installedSkill: { type: ['string', 'null'] },
           catalogId: { type: ['string', 'null'] },
           searchQuery: { type: ['string', 'null'] }
         },
-        required: ['capability', 'reason', 'installedSkill', 'catalogId', 'searchQuery'],
+        required: ['capability', 'reason', 'optional', 'installedSkill', 'catalogId', 'searchQuery'],
         additionalProperties: false
       }
     }
@@ -58,6 +61,7 @@ const DESIGN_SCHEMA: Record<string, unknown> = {
 export interface DesignSkill {
   capability: string
   reason: string
+  optional: boolean
   installedSkill: string | null
   catalogId: string | null
   searchQuery: string | null
@@ -74,10 +78,13 @@ function designPrompt(installed: { name: string; description: string }[]): strin
 - instructions: the agent's role and behavior, written as a direct system-prompt directive to the agent (second person: "You review…"). Cover what it focuses on, how it should work, and what to prioritize or avoid. 2-6 sentences, concrete, no preamble.
 - model: "grok-build-0.1" (Grok 4.5, agentic coding, faster — the default) unless the brief is dominated by deep reasoning/architecture, then "grok-4.3".
 - permissionMode: "ask" (default), "auto-edit" (auto-approve edits, ask for commands), "full-auto", or "plan-only" (read/plan, never mutate — good for reviewers/auditors).
-- skills: 0-${MAX_SKILLS} capabilities THIS agent needs beyond ordinary coding. Ordinary reading/editing/running code needs NO skill — only list a skill for a specialized capability (document formats, a niche framework workflow, a domain procedure). For each, set exactly ONE of:
+- skills: capabilities relevant to THIS agent, in two tiers via the "optional" flag:
+  - REQUIRED (optional=false): a specialized capability the agent genuinely needs beyond ordinary coding — document formats, a niche framework workflow, a domain procedure. Ordinary reading/editing/running/reviewing code needs NO required skill, so this list is often empty.
+  - SUGGESTED (optional=true): up to ${MAX_SUGGESTED} skills that would plausibly HELP an agent with this brief's domain, stack, or languages, even if not strictly required — e.g. language/framework best-practice, review, testing, security, or workflow skills for the technologies named (Rust, Go, Electron, React, Terraform, …). ALWAYS propose several suggested skills whenever the brief names any technology, language, framework, or domain, EVEN IF there are zero required skills. These are opt-in — the user decides which to install. Do not suggest a skill for plain general-purpose coding with no named stack.
+  For EACH skill set "optional" (true=suggested, false=required) and exactly ONE of:
   - installedSkill: the exact name of an already-installed skill that covers it (prefer this when one fits),
   - catalogId: the id of a catalog skill that covers it,
-  - searchQuery: a short web-search query to find an installable skill (e.g. "terraform infrastructure skill"), when neither of the above fits.
+  - searchQuery: a short web-search query to find an installable skill (e.g. "rust concurrency best practices agent skill", "electron security skill"), when neither of the above fits — this is the usual case for suggested stack skills.
   Leave the other two null. Do not invent installed-skill names or catalog ids.
 
 Installed skills:
@@ -119,12 +126,27 @@ export async function buildAgentDraft(prompt: string, settings: Settings): Promi
   }
 
   const installedNames = new Set(installed.map((s) => s.name))
+  const raw = parsed.skills ?? []
+  // Required first, then suggested — each capped independently, deduped by ref so
+  // the same skill can't appear in both tiers.
   const skills: AgentBuildSkill[] = []
-  for (const s of parsed.skills ?? []) {
-    if (skills.length >= MAX_SKILLS) break
-    const item = classifySkill(s, installedNames)
-    if (item) skills.push(item)
+  const seen = new Set<string>()
+  const take = (want: boolean, cap: number): void => {
+    let n = 0
+    for (const s of raw) {
+      if (n >= cap) break
+      if (!!s.optional !== want) continue
+      const item = classifySkill(s, installedNames)
+      if (!item) continue
+      const key = `${item.status}:${item.ref.toLowerCase()}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      skills.push(item)
+      n++
+    }
   }
+  take(false, MAX_REQUIRED)
+  take(true, MAX_SUGGESTED)
 
   return {
     name: (parsed.name || 'New agent').trim().slice(0, 60),
@@ -143,18 +165,19 @@ export async function buildAgentDraft(prompt: string, settings: Settings): Promi
 export function classifySkill(s: DesignSkill, installedNames: Set<string>): AgentBuildSkill | null {
   const capability = String(s.capability ?? '').trim().slice(0, 80)
   const reason = String(s.reason ?? '').trim().slice(0, 200)
+  const optional = !!s.optional
   if (!capability) return null
   if (s.installedSkill && installedNames.has(s.installedSkill)) {
-    return { capability, reason, status: 'installed', ref: s.installedSkill }
+    return { capability, reason, optional, status: 'installed', ref: s.installedSkill }
   }
   if (s.catalogId) {
     const entry = findCatalogSkill(s.catalogId)
     if (entry) {
-      return { capability, reason, status: 'catalog', ref: entry.id, install: entry.install }
+      return { capability, reason, optional, status: 'catalog', ref: entry.id, install: entry.install }
     }
   }
   if (s.searchQuery && s.searchQuery.trim()) {
-    return { capability, reason, status: 'search', ref: s.searchQuery.trim().slice(0, 120) }
+    return { capability, reason, optional, status: 'search', ref: s.searchQuery.trim().slice(0, 120) }
   }
   return null
 }

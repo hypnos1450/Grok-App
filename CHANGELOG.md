@@ -4,6 +4,18 @@ All notable changes to Conduit. Each release on GitHub carries the notes
 from its section here — the release workflow extracts them automatically when a
 version tag is pushed.
 
+## 0.6.2 — 2026-07-24
+
+**Agent builder: suggested skills for the agent's stack**
+
+- The AI agent builder now surfaces **optional, domain-relevant skills even when the agent needs no
+  required skills.** Previously, describing a general coding agent (e.g. "a dev agent for Rust, Go,
+  and Electron") correctly returned zero *required* skills — and so suggested nothing at all. Now the
+  builder always proposes skills that fit the brief's languages/frameworks/domain as a separate
+  **Suggested skills** list, each with its own **Install** button so you decide which (if any) to add.
+- Required skills are unchanged (pre-selected if installed, bulk "find & install" for the rest);
+  suggestions are opt-in per item and are added to the agent once installed.
+
 ## 0.6.1 — 2026-07-24
 
 **Skill import & organization: categories and better GitHub handling**
