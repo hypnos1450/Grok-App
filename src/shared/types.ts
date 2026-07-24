@@ -140,6 +140,8 @@ export interface Settings {
   customAgents: CustomAgent[]
   /** Named teams of agent roles for team projects */
   teams: AgentTeam[]
+  /** Allow team orchestrators to run write-capable builders in git worktrees (Model B) */
+  enableTeamBuilders: boolean
 }
 
 export interface McpServerConfig {
@@ -209,7 +211,8 @@ export const DEFAULT_SETTINGS: Settings = {
   testCommand: '',
   reducedMotion: false,
   customAgents: [],
-  teams: []
+  teams: [],
+  enableTeamBuilders: true
 }
 
 export const AGENT_PROFILES: {

@@ -152,6 +152,8 @@ export class AgentRun {
       if (!this.settings.enableSubagents && !isTeam && t.name === 'spawn_agent') continue
       // Team board/brief tools only exist inside a team project.
       if (!isTeam && (t.name === 'team_task' || t.name === 'project_brief')) continue
+      // Write-capable builders (Model B): team projects only, and opt-outable.
+      if (t.name === 'delegate_build' && (!isTeam || this.settings.enableTeamBuilders === false)) continue
       if (planOnly && (t.kind === 'write' || t.kind === 'command')) continue
       if (planOnly && t.name === 'spawn_agent') continue
       byName.set(t.name, t)

@@ -225,6 +225,7 @@ export function applySettingsPatch(current: Settings, patch: unknown): Settings 
   if (typeof p.memoryEnabled === 'boolean') next.memoryEnabled = p.memoryEnabled
   if (typeof p.memoryWriteApproval === 'boolean') next.memoryWriteApproval = p.memoryWriteApproval
   if (typeof p.enableSubagents === 'boolean') next.enableSubagents = p.enableSubagents
+  if (typeof p.enableTeamBuilders === 'boolean') next.enableTeamBuilders = p.enableTeamBuilders
   if (typeof p.autoUpdate === 'boolean') next.autoUpdate = p.autoUpdate
   if (typeof p.notifications === 'boolean') next.notifications = p.notifications
   if (typeof p.agentProfile === 'string' && PROFILES.has(p.agentProfile as AgentProfileId)) {

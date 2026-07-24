@@ -18,6 +18,7 @@ import { MemoryTarget, memoryStore } from './memory'
 import { skillStore } from './skills'
 import { spawnAgentTool } from './subagent'
 import { teamTaskTool, projectBriefTool } from './team'
+import { delegateBuildTool } from './builders'
 import { sessionStore } from '../sessions'
 import { assertPublicUrl, resolveInWorkspace } from '../security'
 
@@ -1768,7 +1769,7 @@ const askUserTool: Tool = {
 export const TOOLS: Tool[] = [
   bashTool, monitorTool, diagnosticsTool, lspTool, lspEditTool, readFileTool, applyPatchTool, writeFileTool, listDirTool, globTool, grepTool,
   fetchPageTool, docsTool, updatePlanTool, askUserTool, memoryTool, skillTool, sessionSearchTool, recallHistoryTool,
-  spawnAgentTool, teamTaskTool, projectBriefTool
+  spawnAgentTool, teamTaskTool, projectBriefTool, delegateBuildTool
 ]
 
 export const toolByName = new Map(TOOLS.map((t) => [t.name, t]))
@@ -1778,6 +1779,18 @@ export const toolByName = new Map(TOOLS.map((t) => [t.name, t]))
 export function subagentTools(withSkills = false): Tool[] {
   const base = [readFileTool, listDirTool, globTool, grepTool, lspTool, sessionSearchTool, fetchPageTool, docsTool]
   return withSkills ? [...base, skillReadTool] : base
+}
+
+/**
+ * Write-capable toolset for a Model-B builder subagent working inside an
+ * isolated git worktree. Full read/edit/command tools, but no delegation
+ * (no recursion), no team-board tools, no user prompts, no memory writes.
+ */
+export function builderTools(): Tool[] {
+  return [
+    bashTool, monitorTool, diagnosticsTool, lspTool, lspEditTool, readFileTool, applyPatchTool,
+    writeFileTool, listDirTool, globTool, grepTool, fetchPageTool, docsTool
+  ]
 }
 
 export function toolDefs(opts?: { memory?: boolean }): ApiToolDef[] {

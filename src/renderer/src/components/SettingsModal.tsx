@@ -1706,6 +1706,22 @@ export default function SettingsModal(props: {
                   from Home.
                 </div>
               </div>
+              <div className="setting-row">
+                <div>
+                  <div className="setting-label">Write-capable builders (Model B)</div>
+                  <div className="setting-help">
+                    Let a team orchestrator delegate implementation to builder roles that write code
+                    autonomously in isolated git worktrees, merged back for review. Needs a git repo.
+                  </div>
+                </div>
+                <select
+                  value={props.settings.enableTeamBuilders ? 'on' : 'off'}
+                  onChange={(e) => void update({ enableTeamBuilders: e.target.value === 'on' })}
+                >
+                  <option value="on">on</option>
+                  <option value="off">off</option>
+                </select>
+              </div>
               <TeamsSection settings={props.settings} update={update} />
             </div>
           )}
