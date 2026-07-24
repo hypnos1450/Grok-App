@@ -208,8 +208,19 @@ function ToolCard({
 }): JSX.Element {
   const [open, setOpen] = useState(false)
   const [pinState, setPinState] = useState<'idle' | 'pinning' | 'done' | 'err'>('idle')
-  const summary = summarize(item)
-  const displayName = item.name.startsWith('mcp__') ? item.name.split('__').slice(1).join(':') : item.name
+  // A delegation to a named team role renders as that role, not "spawn_agent",
+  // so a team project reads like a room of experts.
+  const role =
+    item.name === 'spawn_agent' && typeof item.input?.agent === 'string' && item.input.agent.trim()
+      ? String(item.input.agent).trim()
+      : null
+  const roleTasks = role && Array.isArray(item.input?.tasks) ? (item.input.tasks as unknown[]).map(String) : []
+  const summary = role ? roleTasks.join(' · ') : summarize(item)
+  const displayName = role
+    ? `${roleEmoji(role)} ${role}`
+    : item.name.startsWith('mcp__')
+      ? item.name.split('__').slice(1).join(':')
+      : item.name
   const bashCmd = item.name === 'bash' ? String(item.input?.command ?? '').trim() : ''
   const canPin = !!sessionId && !!bashCmd
 
@@ -238,11 +249,13 @@ function ToolCard({
   }
 
   return (
-    <div className={`tool-card ${item.status}`}>
+    <div className={`tool-card ${item.status}${role ? ' role' : ''}`}>
       <button className="tool-card-header" onClick={() => setOpen((v) => !v)}>
-        <span className={`tool-icon ${item.status}`} aria-hidden>
-          {toolIcon(item.name)}
-        </span>
+        {!role && (
+          <span className={`tool-icon ${item.status}`} aria-hidden>
+            {toolIcon(item.name)}
+          </span>
+        )}
         <span className="tool-name">{displayName}</span>
         <span className="tool-summary">{summary}</span>
         {typeof item.durationMs === 'number' && (
@@ -288,6 +301,19 @@ function ToolCard({
       )}
     </div>
   )
+}
+
+/** A rough emoji for a team role name, for the delegation label. */
+function roleEmoji(name: string): string {
+  const n = name.toLowerCase()
+  if (/architect/.test(n)) return '🏛️'
+  if (/secur/.test(n)) return '🔒'
+  if (/qa|test/.test(n)) return '🧪'
+  if (/design|ux|ui/.test(n)) return '🎨'
+  if (/product|\bpm\b|manager/.test(n)) return '📋'
+  if (/develop|engineer|program|\bdev\b/.test(n)) return '💻'
+  if (/ceo|orchestrat/.test(n)) return '🎯'
+  return '🧑‍💼'
 }
 
 function summarize(item: Extract<ChatItem, { kind: 'tool' }>): string {

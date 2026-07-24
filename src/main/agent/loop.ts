@@ -122,6 +122,12 @@ export class AgentRun {
       getState: () => this.session.teamState ?? { tasks: [], brief: '' },
       setState: (next: TeamState) => {
         this.session.teamState = next
+        this.emit({
+          type: 'team-state',
+          sessionId: this.session.meta.id,
+          tasks: next.tasks,
+          brief: next.brief
+        })
       }
     }
   }

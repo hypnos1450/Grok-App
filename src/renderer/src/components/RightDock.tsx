@@ -7,16 +7,38 @@ import { JSX, useCallback, useEffect, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import hljs from 'highlight.js/lib/common'
-import { ChatItem, FileEntry, FilePreview, PlanStep, SessionMeta, ToolStatus } from '@shared/types'
+import {
+  ChatItem,
+  FileEntry,
+  FilePreview,
+  PlanStep,
+  SessionMeta,
+  SessionTeamInfo,
+  TeamTask,
+  ToolStatus
+} from '@shared/types'
 import { ExpandIcon, RefreshIcon, ShrinkIcon, XIcon } from './Icons'
 import TerminalPanel from './TerminalPanel'
 
-type PanelId = 'preview' | 'files' | 'tasks' | 'review' | 'term'
+type PanelId = 'board' | 'brief' | 'preview' | 'files' | 'tasks' | 'review' | 'term'
 
-const STACK_ORDER: PanelId[] = ['preview', 'files', 'tasks', 'review']
+const STACK_ORDER: PanelId[] = ['board', 'brief', 'preview', 'files', 'tasks', 'review']
 const STORE_KEY = 'dock-open-panels'
 
 const ICONS: Record<PanelId, JSX.Element> = {
+  board: (
+    <svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <rect x="1.5" y="2.5" width="3.5" height="11" rx="1" />
+      <rect x="6.25" y="2.5" width="3.5" height="7.5" rx="1" />
+      <rect x="11" y="2.5" width="3.5" height="9.5" rx="1" />
+    </svg>
+  ),
+  brief: (
+    <svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.4">
+      <path d="M3.5 1.5h6L13 5v9.5a1 1 0 0 1-1 1H3.5a1 1 0 0 1-1-1v-12a1 1 0 0 1 1-1Z" />
+      <path d="M9 1.5V5h4M5 8h6M5 10.5h6M5 5.5h2" />
+    </svg>
+  ),
   preview: (
     <svg viewBox="0 0 16 16" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="1.4">
       <rect x="1.5" y="2.5" width="13" height="11" rx="1.5" />
@@ -51,6 +73,8 @@ const ICONS: Record<PanelId, JSX.Element> = {
 }
 
 const TITLES: Record<PanelId, string> = {
+  board: 'Board',
+  brief: 'Brief',
   preview: 'Preview',
   files: 'Files',
   tasks: 'Tasks',
@@ -335,6 +359,86 @@ function TasksPanel(props: { sessionId: string }): JSX.Element {
   )
 }
 
+/** Team board + brief, kept live via the team-state event. */
+function useTeamInfo(sessionId: string): SessionTeamInfo | null {
+  const [info, setInfo] = useState<SessionTeamInfo | null>(null)
+  useEffect(() => {
+    setInfo(null)
+    void window.harness.sessions.load(sessionId).then((d) => setInfo(d?.team ?? null))
+    return window.harness.agent.onEvent((ev) => {
+      if (!('sessionId' in ev) || ev.sessionId !== sessionId) return
+      if (ev.type === 'team-state') {
+        setInfo((prev) => (prev ? { ...prev, tasks: ev.tasks, brief: ev.brief } : prev))
+      }
+    })
+  }, [sessionId])
+  return info
+}
+
+const BOARD_STATUSES: TeamTask['status'][] = ['todo', 'in-progress', 'review', 'blocked', 'done']
+
+function BoardPanel(props: { sessionId: string }): JSX.Element {
+  const info = useTeamInfo(props.sessionId)
+  if (!info) return <div className="dock-empty">No team board for this session.</div>
+  if (!info.tasks.length) {
+    return <div className="dock-empty">No tasks yet — the orchestrator creates them as the project starts.</div>
+  }
+  const pendingGates = (t: TeamTask): string[] => {
+    if (t.status === 'done' || t.requiresReview === false) return []
+    return info.reviewGates.filter((role) => {
+      const rs = t.reviews.filter((r) => r.role.toLowerCase() === role.toLowerCase())
+      const latest = rs[rs.length - 1]
+      return !latest || latest.verdict !== 'pass'
+    })
+  }
+  return (
+    <div className="board-panel">
+      {BOARD_STATUSES.map((st) => {
+        const col = info.tasks.filter((t) => t.status === st)
+        if (!col.length) return null
+        return (
+          <div key={st} className="board-group">
+            <div className="board-group-head">
+              {st.replace('-', ' ')} <span className="board-count">{col.length}</span>
+            </div>
+            {col.map((t) => {
+              const pend = pendingGates(t)
+              const gated = t.status !== 'done' && t.requiresReview !== false
+              return (
+                <div key={t.id} className={`board-card ${st}`} title={t.description ?? ''}>
+                  <div className="board-card-title">{t.title}</div>
+                  <div className="board-card-meta">
+                    {t.assignee && <span className="board-assignee">@{t.assignee}</span>}
+                    {pend.map((g) => (
+                      <span key={g} className="board-gate pending">
+                        {g} ?
+                      </span>
+                    ))}
+                    {gated && !pend.length && <span className="board-gate ok">gates pass</span>}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function BriefPanel(props: { sessionId: string }): JSX.Element {
+  const info = useTeamInfo(props.sessionId)
+  if (!info) return <div className="dock-empty">No project brief for this session.</div>
+  if (!info.brief.trim()) {
+    return <div className="dock-empty">The orchestrator hasn&apos;t written the project brief yet.</div>
+  }
+  return (
+    <div className="brief-panel markdown-body">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{info.brief}</ReactMarkdown>
+    </div>
+  )
+}
+
 function ReviewPanel(props: {
   sessionId: string
   refreshKey: number
@@ -444,6 +548,11 @@ export default function RightDock({
     setFilesRefresh((n) => n + 1)
   }, [session?.id])
 
+  // Open the Board by default when entering a team project.
+  useEffect(() => {
+    if (session?.teamId) setOpen((prev) => (prev.includes('board') ? prev : [...prev, 'board']))
+  }, [session?.id, session?.teamId])
+
   // Follow the agent's file writes: refresh Files, point Preview at the file.
   useEffect(() => {
     if (!session) return
@@ -499,7 +608,9 @@ export default function RightDock({
     setOpen((prev) => (prev.includes('preview') ? prev : [...prev, 'preview']))
   }
 
-  const stack = STACK_ORDER.filter((p) => open.includes(p))
+  const stack = STACK_ORDER.filter(
+    (p) => open.includes(p) && (session.teamId || (p !== 'board' && p !== 'brief'))
+  )
   const visibleStack = expanded && stack.includes(expanded) ? [expanded] : stack
   const termOpen = open.includes('term')
 
@@ -518,7 +629,11 @@ export default function RightDock({
       onToggleExpand={() => setExpanded((e) => (e === id ? null : id))}
       onClose={() => close(id)}
     >
-      {id === 'preview' ? (
+      {id === 'board' ? (
+        <BoardPanel sessionId={session.id} />
+      ) : id === 'brief' ? (
+        <BriefPanel sessionId={session.id} />
+      ) : id === 'preview' ? (
         <PreviewPanel sessionId={session.id} file={previewFile} version={previewVersion} />
       ) : id === 'files' ? (
         <FilesPanel sessionId={session.id} refreshKey={filesRefresh} onOpenFile={openFile} />
@@ -542,7 +657,9 @@ export default function RightDock({
       {visibleStack.length > 0 && <div className="dock-col">{visibleStack.map(renderPanel)}</div>}
       {termOpen && <div className={`dock-col${expanded === 'term' ? ' wide' : ''}`}>{renderPanel('term')}</div>}
       <div className="dock-rail">
-        {(['preview', 'files', 'tasks', 'review', 'term'] as PanelId[]).map((id) => (
+        {((session.teamId
+          ? ['board', 'brief', 'preview', 'files', 'tasks', 'review', 'term']
+          : ['preview', 'files', 'tasks', 'review', 'term']) as PanelId[]).map((id) => (
           <button
             key={id}
             className={`rail-btn${open.includes(id) ? ' active' : ''}`}

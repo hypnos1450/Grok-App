@@ -2858,3 +2858,61 @@ html[data-reduced-motion='1'] *::after {
   transition-duration: 0.01ms !important;
   scroll-behavior: auto !important;
 }
+
+/* ---- Team project: Board + Brief panels, role delegation cards ---- */
+.board-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 10px 12px;
+  overflow-y: auto;
+}
+.board-group-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.board-count {
+  background: var(--bg-active);
+  border-radius: 999px;
+  padding: 0 6px;
+  font-size: 10px;
+  color: var(--text-secondary);
+}
+.board-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border-strong);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin-bottom: 6px;
+}
+.board-card.in-progress { border-left-color: var(--accent); }
+.board-card.review { border-left-color: var(--warn); }
+.board-card.blocked { border-left-color: var(--err); }
+.board-card.done { border-left-color: var(--ok); opacity: 0.7; }
+.board-card-title { font-size: 13px; color: var(--text); margin-bottom: 5px; }
+.board-card.done .board-card-title { text-decoration: line-through; }
+.board-card-meta { display: flex; flex-wrap: wrap; gap: 5px; align-items: center; }
+.board-assignee { font-size: 11px; color: var(--text-secondary); }
+.board-gate {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+.board-gate.pending { color: var(--warn); border-color: var(--warn); }
+.board-gate.ok { color: var(--ok); border-color: var(--ok); }
+.brief-panel {
+  padding: 12px 14px;
+  overflow-y: auto;
+  font-size: 13px;
+  line-height: 1.55;
+}
+.tool-card.role { border-color: var(--accent-dim); }
+.tool-card.role .tool-name { color: var(--text); font-weight: 600; }

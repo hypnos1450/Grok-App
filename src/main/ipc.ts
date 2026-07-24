@@ -249,7 +249,15 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
             sessionCachedTokens: rec.meta.totalCachedTokens ?? 0
           }
         : undefined
-    return { meta: rec.meta, items: rec.items, checkpoints, plan: rec.plan, usage }
+    const team = rec.meta.teamId
+      ? (() => {
+          const t = settings.teams?.find((x) => x.id === rec.meta.teamId)
+          if (!t) return undefined
+          const state = rec.teamState ?? { tasks: [], brief: '' }
+          return { name: t.name, reviewGates: t.reviewGates, tasks: state.tasks, brief: state.brief }
+        })()
+      : undefined
+    return { meta: rec.meta, items: rec.items, checkpoints, plan: rec.plan, usage, team }
   })
   handle('sessions:restoreCheckpoint', async (_e, sessionId: string, itemId: string) => {
     assertId(sessionId, 'sessionId')

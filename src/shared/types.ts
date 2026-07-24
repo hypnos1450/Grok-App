@@ -437,11 +437,23 @@ export type AgentEvent =
   | { type: 'queued'; sessionId: string; text: string }
   /** The agent updated its live plan (update_plan tool) */
   | { type: 'plan'; sessionId: string; steps: PlanStep[] }
+  /** The team board or brief changed (team_task / project_brief) */
+  | { type: 'team-state'; sessionId: string; tasks: TeamTask[]; brief: string }
+
+/** Team info for a team-project session's Board/Brief panels. */
+export interface SessionTeamInfo {
+  name: string
+  reviewGates: string[]
+  tasks: TeamTask[]
+  brief: string
+}
 
 export interface SessionData {
   meta: SessionMeta
   items: ChatItem[]
   checkpoints: CheckpointInfo[]
+  /** Team board + brief + roster, when this is a team-project session */
+  team?: SessionTeamInfo
   /** Last plan the agent published via update_plan */
   plan?: PlanStep[]
   /** Latest context-window usage (restored from lastPromptTokens when available) */
