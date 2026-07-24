@@ -8,6 +8,7 @@ import dns from 'node:dns/promises'
 import { safeStorage } from 'electron'
 import {
   AgentProfileId,
+  AgentTeam,
   CustomAgent,
   DEFAULT_SETTINGS,
   McpServerConfig,
@@ -179,6 +180,26 @@ function sanitizeCustomAgent(raw: unknown): CustomAgent | null {
   return { id, name, instructions, skills, model, permissionMode }
 }
 
+/** Validate one team: references custom-agent ids, bounded strings, gate roles. */
+function sanitizeTeam(raw: unknown): AgentTeam | null {
+  if (!raw || typeof raw !== 'object') return null
+  const o = raw as Record<string, unknown>
+  const name = String(o.name ?? '').trim().slice(0, 60)
+  if (!name) return null
+  const id =
+    typeof o.id === 'string' && AGENT_ID_RE.test(o.id) ? o.id : crypto.randomBytes(8).toString('hex')
+  const description = String(o.description ?? '').trim().slice(0, 500)
+  const orchestratorId =
+    typeof o.orchestratorId === 'string' && AGENT_ID_RE.test(o.orchestratorId) ? o.orchestratorId : ''
+  const memberIds = Array.isArray(o.memberIds)
+    ? [...new Set(o.memberIds.filter((m): m is string => typeof m === 'string' && AGENT_ID_RE.test(m)))].slice(0, 20)
+    : []
+  const reviewGates = Array.isArray(o.reviewGates)
+    ? [...new Set(o.reviewGates.filter((g): g is string => typeof g === 'string' && g.trim().length > 0).map((g) => g.trim().slice(0, 80)))].slice(0, 10)
+    : []
+  return { id, name, description, orchestratorId, memberIds, reviewGates }
+}
+
 /**
  * Merge a partial settings patch into current settings with runtime validation.
  * Unknown keys are dropped. Invalid values keep the previous setting.
@@ -251,6 +272,18 @@ export function applySettingsPatch(current: Settings, patch: unknown): Settings 
       }
     }
     next.customAgents = agents
+  }
+  if (Array.isArray(p.teams)) {
+    const teams: AgentTeam[] = []
+    const seen = new Set<string>()
+    for (const raw of p.teams.slice(0, 40)) {
+      const t = sanitizeTeam(raw)
+      if (t && !seen.has(t.id)) {
+        seen.add(t.id)
+        teams.push(t)
+      }
+    }
+    next.teams = teams
   }
 
   return next

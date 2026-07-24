@@ -18,8 +18,9 @@ src/
     agent/
       loop.ts           Agent loop: tools, permissions, compaction, self-review
       provider.ts       SSE client for api.x.ai; prompt-cache-friendly messages
-      tools.ts          bash, read_file, apply_patch, write_file, list_dir, glob, grep, diagnostics, lsp, lsp_edit, docs, monitor, fetch_page, update_plan, ask_user, memory, skill, session_search, recall_history, spawn_agent
+      tools.ts          bash, read_file, apply_patch, write_file, list_dir, glob, grep, diagnostics, lsp, lsp_edit, docs, monitor, fetch_page, update_plan, ask_user, memory, skill, session_search, recall_history, spawn_agent, team_task, project_brief
       apply-patch.ts    Codex-format patch parser + applier
+      team.ts           team-project tools: task board (enforced QA/AppSec review gate) + shared project brief
       lsp/              language-server client: rpc.ts, servers.ts, client.ts, manager.ts, edit.ts (WorkspaceEdit applier)
       docs.ts           devdocs.io documentation client (disk-cached, offline-tolerant)
       env.ts            credential scrub shared by bash + LSP spawns

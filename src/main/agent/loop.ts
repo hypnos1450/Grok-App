@@ -11,12 +11,14 @@ import fsp from 'node:fs/promises'
 import path from 'node:path'
 import {
   AgentEvent,
+  AgentTeam,
   Attachments,
   ChatItem,
   CustomAgent,
   PermissionMode,
   PermissionRequest,
-  Settings
+  Settings,
+  TeamState
 } from '@shared/types'
 import { ApiMessage, ApiToolCall, ProviderError, UserContentPart, streamCompletion } from './provider'
 import { COMPACTION_PROMPT, REVIEW_PROMPT, REVIEW_SCHEMA, estimateTokens, profileFor } from './profiles'
@@ -28,7 +30,7 @@ import { gitSummary } from './git'
 import { approvalCount, bumpApproval, recordFailure, recurringFailures } from './telemetry'
 import { recordOriginal } from './checkpoints'
 import { ApiToolDef } from './provider'
-import { Tool, ToolContext, ToolResult, toolByName } from './tools'
+import { Tool, ToolContext, ToolResult, TeamToolContext, toolByName } from './tools'
 import { SerialQueue, withAbort } from './async'
 import { SessionRecord, sessionStore } from '../sessions'
 import { bashAllowKey, resolveInWorkspace, writeAllowKey } from '../security'
@@ -102,6 +104,28 @@ export class AgentRun {
     return this.settings.customAgents?.find((a) => a.id === id)
   }
 
+  /** The team driving this session, if it's a team project. */
+  private selectedTeam(): AgentTeam | undefined {
+    const id = this.session.meta.teamId
+    if (!id) return undefined
+    return this.settings.teams?.find((t) => t.id === id)
+  }
+
+  /** Board/brief accessor for the team tools; undefined outside a team session.
+   *  Mutations land on session.teamState and persist with the turn's save. */
+  private teamToolContext(): TeamToolContext | undefined {
+    const team = this.selectedTeam()
+    if (!team) return undefined
+    if (!this.session.teamState) this.session.teamState = { tasks: [], brief: '' }
+    return {
+      config: team,
+      getState: () => this.session.teamState ?? { tasks: [], brief: '' },
+      setState: (next: TeamState) => {
+        this.session.teamState = next
+      }
+    }
+  }
+
   /** Permission mode in force: a selected agent's mode overrides the global. */
   private effectiveMode(): PermissionMode {
     return this.selectedAgent()?.permissionMode ?? this.settings.permissionMode
@@ -115,9 +139,13 @@ export class AgentRun {
   private resolveTools(): { defs: ApiToolDef[]; byName: Map<string, Tool> } {
     const byName = new Map<string, Tool>()
     const planOnly = this.planOnly()
+    const isTeam = !!this.selectedTeam()
     for (const t of toolByName.values()) {
       if (!this.settings.memoryEnabled && (t.name === 'memory' || t.name === 'skill')) continue
-      if (!this.settings.enableSubagents && t.name === 'spawn_agent') continue
+      // Team projects need delegation, so spawn_agent stays on there regardless.
+      if (!this.settings.enableSubagents && !isTeam && t.name === 'spawn_agent') continue
+      // Team board/brief tools only exist inside a team project.
+      if (!isTeam && (t.name === 'team_task' || t.name === 'project_brief')) continue
       if (planOnly && (t.kind === 'write' || t.kind === 'command')) continue
       if (planOnly && t.name === 'spawn_agent') continue
       byName.set(t.name, t)
@@ -532,7 +560,8 @@ export class AgentRun {
         this.emit({ type: 'plan', sessionId, steps })
       },
       askUser: (question, options) => this.askQuestionSerial({ question, options }),
-      customAgents: this.settings.customAgents ?? []
+      customAgents: this.settings.customAgents ?? [],
+      team: this.teamToolContext()
     }
 
     let preview: string | undefined
@@ -721,6 +750,19 @@ export class AgentRun {
         this.session.repoMapSnapshot = ''
       }
     }
+    // In a team project, the delegatable agents are the team's members, and the
+    // orchestration block lists them as the roster.
+    const team = this.selectedTeam()
+    const teamMembers = team
+      ? team.memberIds
+          .map((mid) => this.settings.customAgents?.find((a) => a.id === mid))
+          .filter((a): a is CustomAgent => !!a)
+      : []
+    const spawnable = team
+      ? teamMembers.map((a) => ({ name: a.name, instructions: a.instructions }))
+      : this.settings.enableSubagents && this.settings.customAgents?.length
+        ? this.settings.customAgents.map((a) => ({ name: a.name, instructions: a.instructions }))
+        : undefined
     const system: ApiMessage = {
       role: 'system',
       content: profile.systemPrompt({
@@ -735,10 +777,17 @@ export class AgentRun {
         planOnly: this.planOnly(),
         testCommand: this.settings.testCommand,
         agentRole: agent ? { name: agent.name, instructions: agent.instructions } : undefined,
-        spawnableAgents:
-          this.settings.enableSubagents && this.settings.customAgents?.length
-            ? this.settings.customAgents.map((a) => ({ name: a.name, instructions: a.instructions }))
-            : undefined
+        spawnableAgents: spawnable,
+        teamRole: team
+          ? {
+              name: team.name,
+              members: teamMembers.map((a) => ({
+                name: a.name,
+                role: a.instructions.replace(/\s+/g, ' ').slice(0, 90)
+              })),
+              reviewGates: team.reviewGates
+            }
+          : undefined
       })
     }
     return [system, ...this.session.apiMessages]

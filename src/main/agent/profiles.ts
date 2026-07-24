@@ -46,6 +46,12 @@ export interface SystemPromptOpts {
   agentRole?: { name: string; instructions: string }
   /** User-defined agents the main agent may delegate to via spawn_agent */
   spawnableAgents?: { name: string; instructions: string }[]
+  /** Team-project orchestration: the roster + review gates the CEO runs */
+  teamRole?: {
+    name: string
+    members: { name: string; role: string }[]
+    reviewGates: string[]
+  }
 }
 
 // Shared harness contract. Kept identical and FIRST across both models so the
@@ -156,6 +162,25 @@ The user enabled plan-only mode for this session.
 - Do NOT write/edit files, run shell commands that change state, or call MCP tools that mutate anything.
 - If the user asks you to implement, produce a clear plan and ask them to turn off plan-only (or switch profile) to execute.`
 
+function teamOrchestrationBlock(team: NonNullable<SystemPromptOpts['teamRole']>): string {
+  const roster = team.members.length
+    ? team.members.map((m) => `- ${m.name}${m.role ? ` — ${m.role}` : ''}`).join('\n')
+    : '(no member roles defined)'
+  const gates = team.reviewGates.length ? team.reviewGates.join(' and ') : 'the review roles'
+  return (
+    `# You are the orchestrator of a team project\n` +
+    `You run the "${team.name}" team as its orchestrator (CEO). You own the plan, the task board, and the shared project brief; you do the actual code edits and commits yourself. Your team members are read-only expert advisors you delegate to — they return specs, designs, and review verdicts; they do not edit files.\n\n` +
+    `Team members (delegate with spawn_agent, setting \`agent\` to the exact name):\n${roster}\n\n` +
+    `Run the project like this:\n` +
+    `1. Keep a shared PROJECT BRIEF current with project_brief (scope, features, tech stack, architecture decisions, status). Delegated roles are told to read it — update it as decisions land.\n` +
+    `2. Manage work on the task board with team_task: create tasks, assign each to the right role, and track status. One unit of real work = one task.\n` +
+    `3. For each task, delegate the thinking to the right role (Product/Architecture/UI research and design, etc.) via spawn_agent, then implement the result yourself with your edit/command tools.\n` +
+    `4. QUALITY GATE: before you close any implementation task, delegate its review to ${gates}, record each verdict with team_task action="review", and only then close it. team_task action="close" will REFUSE until every required review has passed — this is enforced, so route the reviews rather than trying to skip them. A failing review sends the task back for rework.\n` +
+    `5. Commit meaningful, working increments (ask before committing), and close tasks as their gates pass.\n` +
+    `Delegate genuine expertise to your roles; don't do everything in one voice. Keep each delegation self-contained (the subagent only sees your task text and the brief file).`
+  )
+}
+
 function assemble(core: string[], opts: SystemPromptOpts): string {
   const parts = [...core]
   // Placed after the cached core/addendum prefix so the prompt-cache prefix is
@@ -173,6 +198,9 @@ function assemble(core: string[], opts: SystemPromptOpts): string {
         `You may hand a scoped, read-only investigation to one of these user-defined agents by setting the \`agent\` field to its exact name in a spawn_agent task. Each runs with its own instructions and skills:\n` +
         opts.spawnableAgents.map((a) => `- ${a.name}: ${a.instructions.replace(/\s+/g, ' ').slice(0, 160)}`).join('\n')
     )
+  }
+  if (opts.teamRole) {
+    parts.push(teamOrchestrationBlock(opts.teamRole))
   }
   if (opts.planOnly) parts.push(PLAN_ONLY_GUIDANCE)
   if (opts.memoryEnabled) {

@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { CustomAgent, PlanStep } from '@shared/types'
+import { AgentTeam, CustomAgent, PlanStep, TeamState } from '@shared/types'
 import { ApiToolDef } from './provider'
 import { newFilePreview, unifiedDiff } from './diff'
 import { parsePatch, applyHunks, PatchError } from './apply-patch'
@@ -17,6 +17,7 @@ import { AppliedFile, applyWorkspaceEdit } from './lsp/edit'
 import { MemoryTarget, memoryStore } from './memory'
 import { skillStore } from './skills'
 import { spawnAgentTool } from './subagent'
+import { teamTaskTool, projectBriefTool } from './team'
 import { sessionStore } from '../sessions'
 import { assertPublicUrl, resolveInWorkspace } from '../security'
 
@@ -40,6 +41,15 @@ export interface ToolContext {
   askUser?: (question: string, options?: string[]) => Promise<string>
   /** User-defined agent personas, so spawn_agent can delegate to one by name. */
   customAgents?: CustomAgent[]
+  /** Team board/brief access for a team-project session (team_task, project_brief) */
+  team?: TeamToolContext
+}
+
+/** How the team tools read/write the session's board + brief. */
+export interface TeamToolContext {
+  config: AgentTeam
+  getState(): TeamState
+  setState(next: TeamState): void
 }
 
 export interface ToolResult {
@@ -1758,7 +1768,7 @@ const askUserTool: Tool = {
 export const TOOLS: Tool[] = [
   bashTool, monitorTool, diagnosticsTool, lspTool, lspEditTool, readFileTool, applyPatchTool, writeFileTool, listDirTool, globTool, grepTool,
   fetchPageTool, docsTool, updatePlanTool, askUserTool, memoryTool, skillTool, sessionSearchTool, recallHistoryTool,
-  spawnAgentTool
+  spawnAgentTool, teamTaskTool, projectBriefTool
 ]
 
 export const toolByName = new Map(TOOLS.map((t) => [t.name, t]))

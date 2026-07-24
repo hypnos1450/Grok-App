@@ -5,7 +5,7 @@ import crypto from 'node:crypto'
 import fs from 'node:fs'
 import fsp from 'node:fs/promises'
 import path from 'node:path'
-import { ChatItem, ModelId, PlanStep, SCHEMA_VERSION, SessionMeta } from '@shared/types'
+import { ChatItem, ModelId, PlanStep, SCHEMA_VERSION, SessionMeta, TeamState } from '@shared/types'
 import type { Checkpoint } from './agent/checkpoints'
 import { ApiMessage } from './agent/provider'
 
@@ -35,6 +35,8 @@ export interface SessionRecord {
   plan?: PlanStep[]
   /** Files mutated during the latest agent turn (for review panel) */
   lastTurnChanges?: { path: string; kind: 'write' | 'edit' }[]
+  /** Team task board + shared brief (set for team-project sessions) */
+  teamState?: TeamState
 }
 
 /**

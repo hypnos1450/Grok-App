@@ -36,6 +36,53 @@ export interface CustomAgent {
   permissionMode: PermissionMode
 }
 
+/**
+ * A named group of custom-agent roles for a project. One member is the
+ * orchestrator (the active agent in a team session); the rest are delegated to
+ * by name. Gated tasks can't close until every `reviewGates` role has passed.
+ */
+export interface AgentTeam {
+  id: string
+  name: string
+  description: string
+  /** Custom-agent id of the orchestrator (CEO) — the session's active agent */
+  orchestratorId: string
+  /** Custom-agent ids of the non-orchestrator roles */
+  memberIds: string[]
+  /** Role names (agent names) whose review must pass before a gated task closes */
+  reviewGates: string[]
+}
+
+export type TeamTaskStatus = 'todo' | 'in-progress' | 'review' | 'blocked' | 'done'
+
+export interface TeamTaskReview {
+  /** Reviewer role name (e.g. "QA Tester") */
+  role: string
+  verdict: 'pass' | 'fail'
+  notes?: string
+  at: number
+}
+
+export interface TeamTask {
+  id: string
+  title: string
+  description?: string
+  /** Role name this task is assigned to */
+  assignee?: string
+  status: TeamTaskStatus
+  /** When true (default), the team's reviewGates must pass before it can close */
+  requiresReview: boolean
+  reviews: TeamTaskReview[]
+  createdAt: number
+  updatedAt: number
+}
+
+/** Per-session team workspace: the task board and the shared project brief. */
+export interface TeamState {
+  tasks: TeamTask[]
+  brief: string
+}
+
 export type UpdateChannel = 'latest' | 'beta'
 
 export interface AuthState {
@@ -91,6 +138,8 @@ export interface Settings {
   reducedMotion: boolean
   /** User-defined agent personas (title, instructions, scoped skills, model, mode) */
   customAgents: CustomAgent[]
+  /** Named teams of agent roles for team projects */
+  teams: AgentTeam[]
 }
 
 export interface McpServerConfig {
@@ -159,7 +208,8 @@ export const DEFAULT_SETTINGS: Settings = {
   auditLogEnabled: true,
   testCommand: '',
   reducedMotion: false,
-  customAgents: []
+  customAgents: [],
+  teams: []
 }
 
 export const AGENT_PROFILES: {
@@ -213,6 +263,8 @@ export interface SessionMeta {
   planOnly?: boolean
   /** Selected custom agent persona for this session (id into settings.customAgents) */
   agentId?: string
+  /** Team driving this session (id into settings.teams); set for team projects */
+  teamId?: string
 }
 
 /** One step of the agent-maintained live plan (update_plan tool) */
