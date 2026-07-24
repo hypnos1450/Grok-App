@@ -189,6 +189,17 @@ export function FolderIcon(p: IconProps = {}): JSX.Element {
   )
 }
 
+export function UsersIcon(p: IconProps = {}): JSX.Element {
+  return Base(
+    p,
+    <>
+      <path d="M13 16.5v-1.3a2.6 2.6 0 0 0-2.6-2.6H5.1a2.6 2.6 0 0 0-2.6 2.6v1.3" />
+      <circle cx="7.75" cy="7" r="2.6" />
+      <path d="M17.5 16.5v-1.3a2.6 2.6 0 0 0-2-2.5M13.5 4.6a2.6 2.6 0 0 1 0 4.9" />
+    </>
+  )
+}
+
 export function FolderPlusIcon(p: IconProps = {}): JSX.Element {
   return Base(
     p,

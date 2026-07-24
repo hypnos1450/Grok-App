@@ -697,6 +697,8 @@ export interface HarnessApi {
   sessions: {
     list(): Promise<SessionMeta[]>
     create(opts: { cwd?: string; model?: ModelId }): Promise<SessionMeta>
+    /** Start a team-project session driven by the given team (orchestrator active) */
+    createTeam(teamId: string, cwd: string): Promise<SessionMeta>
     load(id: string): Promise<SessionData | null>
     delete(id: string): Promise<void>
     rename(id: string, title: string): Promise<void>

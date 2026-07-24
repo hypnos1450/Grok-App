@@ -13,7 +13,8 @@ import {
   FolderIcon,
   FolderPlusIcon,
   MessageIcon,
-  PlusIcon
+  PlusIcon,
+  UsersIcon
 } from './Icons'
 
 const DAY = 86_400_000
@@ -44,6 +45,7 @@ export default function Home(props: {
   email?: string
   onNewProject: () => void
   onQuickSession: () => void
+  onNewTeamProject?: () => void
   onOpenProject: (cwd: string) => void
   onOpenSession: (id: string) => void
   onSearchSessions?: () => void
@@ -138,6 +140,20 @@ export default function Home(props: {
                 <ArrowRightIcon size={15} />
               </span>
             </button>
+            {props.onNewTeamProject && (
+              <button className="home-action" onClick={props.onNewTeamProject}>
+                <span className="home-action-icon">
+                  <UsersIcon size={19} />
+                </span>
+                <span className="home-action-text">
+                  <b>New team project</b>
+                  <span>Run a team of agents on a folder</span>
+                </span>
+                <span className="home-action-arrow">
+                  <ArrowRightIcon size={15} />
+                </span>
+              </button>
+            )}
             {props.onSearchSessions && (
               <button className="home-action" onClick={props.onSearchSessions}>
                 <span className="home-action-icon">

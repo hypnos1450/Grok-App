@@ -24,6 +24,7 @@ export default function App(): JSX.Element {
   const [sessions, setSessions] = useState<SessionMeta[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [teamPickerOpen, setTeamPickerOpen] = useState(false)
   const [settingsTab, setSettingsTab] = useState<string | undefined>(undefined)
   const [update, setUpdate] = useState<UpdateInfo | null>(null)
   const [switcherOpen, setSwitcherOpen] = useState(false)
@@ -157,6 +158,17 @@ export default function App(): JSX.Element {
   const newSession = useCallback(
     async (cwd?: string) => {
       const meta = await window.harness.sessions.create({ cwd })
+      await refreshSessions()
+      setActiveId(meta.id)
+    },
+    [refreshSessions]
+  )
+
+  const startTeamProject = useCallback(
+    async (teamId: string) => {
+      const dir = await window.harness.pickFolder()
+      if (!dir) return
+      const meta = await window.harness.sessions.createTeam(teamId, dir)
       await refreshSessions()
       setActiveId(meta.id)
     },
@@ -387,6 +399,16 @@ export default function App(): JSX.Element {
               void window.harness.pickFolder().then((dir) => dir && void newSession(dir))
             }
             onQuickSession={() => void newSession()}
+            onNewTeamProject={() => {
+              if (!settings.teams?.length) {
+                setSettingsTab('Teams')
+                setShowSettings(true)
+              } else if (settings.teams.length === 1) {
+                void startTeamProject(settings.teams[0].id)
+              } else {
+                setTeamPickerOpen(true)
+              }
+            }}
             onOpenProject={(cwd) => void newSession(cwd)}
             onOpenSession={setActiveId}
             onSearchSessions={() => setSessionSearchOpen(true)}
@@ -418,6 +440,35 @@ export default function App(): JSX.Element {
             setShowSettings(false)
           }}
         />
+      )}
+      {teamPickerOpen && (
+        <div className="palette-backdrop" onClick={() => setTeamPickerOpen(false)}>
+          <div className="palette team-picker" onClick={(e) => e.stopPropagation()} style={{ padding: 16 }}>
+            <div className="setting-label" style={{ marginBottom: 8 }}>
+              Choose a team for this project
+            </div>
+            <div className="agent-list">
+              {(settings.teams ?? []).map((t) => (
+                <button
+                  key={t.id}
+                  className="agent-card team-pick"
+                  onClick={() => {
+                    setTeamPickerOpen(false)
+                    void startTeamProject(t.id)
+                  }}
+                >
+                  <div className="agent-card-main">
+                    <div className="agent-card-name">{t.name}</div>
+                    <div className="agent-card-desc">{t.description}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+            <button className="mini-btn" style={{ marginTop: 10 }} onClick={() => setTeamPickerOpen(false)}>
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
       <CommandPalette
         open={paletteOpen}

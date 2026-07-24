@@ -294,6 +294,27 @@ export function registerIpc(getWindow: () => BrowserWindow | null): void {
       await sessionStore.save(rec)
     }
   })
+  handle('sessions:createTeam', (_e, teamId: string, cwd: string) => {
+    const team = settings.teams?.find((t) => t.id === teamId)
+    if (!team) throw new Error('Unknown team')
+    let dir: string
+    try {
+      dir = assertExistingDir(String(cwd))
+    } catch (err) {
+      throw new Error(err instanceof Error ? err.message : 'Invalid working directory', { cause: err })
+    }
+    const orchestrator = settings.customAgents?.find((a) => a.id === team.orchestratorId)
+    const rec = sessionStore.create({ cwd: dir, defaultModel: settings.defaultModel })
+    rec.meta.teamId = team.id
+    rec.meta.title = team.name
+    if (orchestrator) {
+      rec.meta.agentId = orchestrator.id
+      rec.meta.model = orchestrator.model
+    }
+    rec.teamState = { tasks: [], brief: '' }
+    void sessionStore.save(rec)
+    return rec.meta
+  })
   handle('sessions:setAgent', async (_e, sessionId: string, agentId: string | null) => {
     assertId(sessionId, 'sessionId')
     const rec = await sessionStore.load(sessionId)

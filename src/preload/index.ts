@@ -22,6 +22,7 @@ const api: HarnessApi = {
   sessions: {
     list: () => ipcRenderer.invoke('sessions:list'),
     create: (opts) => ipcRenderer.invoke('sessions:create', opts),
+    createTeam: (teamId, cwd) => ipcRenderer.invoke('sessions:createTeam', teamId, cwd),
     load: (id) => ipcRenderer.invoke('sessions:load', id),
     delete: (id) => ipcRenderer.invoke('sessions:delete', id),
     rename: (id, title) => ipcRenderer.invoke('sessions:rename', id, title),

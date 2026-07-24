@@ -1,6 +1,7 @@
 import { JSX, useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AgentBuildSkill,
+  AgentTeam,
   CustomAgent,
   McpInstallPreview,
   McpServerConfig,
@@ -14,9 +15,10 @@ import {
   SkillImportReport,
   SkillMeta
 } from '@shared/types'
+import { TEAM_TEMPLATES, TeamTemplate } from '@shared/team-templates'
 import { CheckIcon, XIcon } from './Icons'
 
-const TABS = ['General', 'Agent', 'Agents', 'Memory', 'Skills', 'MCP', 'Security', 'About'] as const
+const TABS = ['General', 'Agent', 'Agents', 'Teams', 'Memory', 'Skills', 'MCP', 'Security', 'About'] as const
 
 const PERMISSION_MODE_LABELS: Record<PermissionMode, string> = {
   ask: 'Ask before each action',
@@ -1157,6 +1159,201 @@ function AgentsSection(props: {
   )
 }
 
+/** Build the custom agents + team a template describes (renderer-side). */
+function instantiateTemplate(
+  tmpl: TeamTemplate,
+  existing: Settings
+): { customAgents: CustomAgent[]; teams: AgentTeam[] } {
+  const roleAgents: CustomAgent[] = tmpl.roles.map((r) => ({
+    id: crypto.randomUUID(),
+    name: r.name,
+    instructions: r.instructions,
+    skills: r.skills,
+    model: r.model,
+    permissionMode: r.permissionMode
+  }))
+  const byName = new Map(roleAgents.map((a) => [a.name, a.id]))
+  const team: AgentTeam = {
+    id: crypto.randomUUID(),
+    name: tmpl.name,
+    description: tmpl.description,
+    orchestratorId: byName.get(tmpl.orchestrator) ?? roleAgents[0].id,
+    memberIds: roleAgents.filter((a) => a.name !== tmpl.orchestrator).map((a) => a.id),
+    reviewGates: tmpl.reviewGates
+  }
+  return {
+    customAgents: [...(existing.customAgents ?? []), ...roleAgents],
+    teams: [...(existing.teams ?? []), team]
+  }
+}
+
+function TeamsSection(props: {
+  settings: Settings
+  update: (patch: Partial<Settings>) => Promise<void>
+}): JSX.Element {
+  const agents = props.settings.customAgents ?? []
+  const teams = props.settings.teams ?? []
+  const [draft, setDraft] = useState<AgentTeam | null>(null)
+  const [busy, setBusy] = useState(false)
+  const agentName = (id: string): string => agents.find((a) => a.id === id)?.name ?? '(deleted agent)'
+
+  const addTemplate = async (tmpl: TeamTemplate): Promise<void> => {
+    setBusy(true)
+    try {
+      await props.update(instantiateTemplate(tmpl, props.settings))
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const startNew = (): void =>
+    setDraft({ id: crypto.randomUUID(), name: '', description: '', orchestratorId: '', memberIds: [], reviewGates: [] })
+
+  const saveDraft = async (): Promise<void> => {
+    if (!draft || !draft.name.trim()) return
+    const others = teams.filter((t) => t.id !== draft.id)
+    await props.update({ teams: [...others, { ...draft, name: draft.name.trim() }] })
+    setDraft(null)
+  }
+
+  const remove = async (id: string): Promise<void> => {
+    await props.update({ teams: teams.filter((t) => t.id !== id) })
+    if (draft?.id === id) setDraft(null)
+  }
+
+  const toggleMember = (id: string): void =>
+    setDraft((d) =>
+      d
+        ? { ...d, memberIds: d.memberIds.includes(id) ? d.memberIds.filter((m) => m !== id) : [...d.memberIds, id] }
+        : d
+    )
+  const toggleGate = (name: string): void =>
+    setDraft((d) =>
+      d
+        ? { ...d, reviewGates: d.reviewGates.includes(name) ? d.reviewGates.filter((g) => g !== name) : [...d.reviewGates, name] }
+        : d
+    )
+
+  if (draft) {
+    const memberNames = draft.memberIds.map(agentName)
+    return (
+      <div className="agent-form">
+        <label className="agent-field">
+          <span className="setting-label">Team name</span>
+          <input
+            type="text"
+            value={draft.name}
+            placeholder="e.g. App Dev Team"
+            maxLength={60}
+            onChange={(e) => setDraft({ ...draft, name: e.target.value })}
+          />
+        </label>
+        <label className="agent-field">
+          <span className="setting-label">Description</span>
+          <textarea
+            rows={2}
+            value={draft.description}
+            maxLength={500}
+            onChange={(e) => setDraft({ ...draft, description: e.target.value })}
+          />
+        </label>
+        <label className="agent-field">
+          <span className="setting-label">Orchestrator</span>
+          <span className="setting-help">The active agent — it runs the board and does the writing.</span>
+          <select
+            value={draft.orchestratorId}
+            onChange={(e) => setDraft({ ...draft, orchestratorId: e.target.value })}
+          >
+            <option value="">Choose an agent…</option>
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="agent-field">
+          <span className="setting-label">Members (delegated roles)</span>
+          <div className="agent-skill-grid">
+            {agents.filter((a) => a.id !== draft.orchestratorId).map((a) => (
+              <label key={a.id} className="agent-skill" title={a.instructions.slice(0, 120)}>
+                <input type="checkbox" checked={draft.memberIds.includes(a.id)} onChange={() => toggleMember(a.id)} />
+                <span>{a.name}</span>
+              </label>
+            ))}
+            {agents.length === 0 && <span className="setting-help">Create agents first (Agents tab).</span>}
+          </div>
+        </div>
+        <div className="agent-field">
+          <span className="setting-label">Review gates</span>
+          <span className="setting-help">These roles must record a passing review before a task can close.</span>
+          <div className="agent-skill-grid">
+            {memberNames.map((n) => (
+              <label key={n} className="agent-skill">
+                <input type="checkbox" checked={draft.reviewGates.includes(n)} onChange={() => toggleGate(n)} />
+                <span>{n}</span>
+              </label>
+            ))}
+            {!memberNames.length && <span className="setting-help">Add members to pick review gates.</span>}
+          </div>
+        </div>
+        <div className="agent-form-actions">
+          <button className="btn primary" disabled={!draft.name.trim() || !draft.orchestratorId} onClick={() => void saveDraft()}>
+            Save team
+          </button>
+          <button className="mini-btn" onClick={() => setDraft(null)}>
+            Cancel
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="memory-section">
+      {TEAM_TEMPLATES.map((tmpl) => (
+        <div key={tmpl.id} className="agent-card">
+          <div className="agent-card-main">
+            <div className="agent-card-name">{tmpl.name} <span className="setting-help">· template</span></div>
+            <div className="agent-card-desc">{tmpl.description}</div>
+          </div>
+          <div className="agent-card-actions">
+            <button className="mini-btn" disabled={busy} onClick={() => void addTemplate(tmpl)}>
+              {busy ? 'Adding…' : 'Add this team'}
+            </button>
+          </div>
+        </div>
+      ))}
+
+      {teams.length > 0 && <div className="agent-or">your teams</div>}
+      <div className="agent-list">
+        {teams.map((t) => (
+          <div key={t.id} className="agent-card">
+            <div className="agent-card-main">
+              <div className="agent-card-name">{t.name}</div>
+              <div className="setting-help">
+                Orchestrator: {agentName(t.orchestratorId)} · {t.memberIds.length} member
+                {t.memberIds.length === 1 ? '' : 's'} · gates: {t.reviewGates.join(', ') || 'none'}
+              </div>
+            </div>
+            <div className="agent-card-actions">
+              <button className="mini-btn" onClick={() => setDraft({ ...t })}>
+                Edit
+              </button>
+              <button className="mini-btn danger" onClick={() => void remove(t.id)}>
+                Delete
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <button className="mini-btn" style={{ marginTop: 10 }} onClick={startNew}>
+        + New team
+      </button>
+    </div>
+  )
+}
+
 export default function SettingsModal(props: {
   settings: Settings
   email?: string
@@ -1496,6 +1693,20 @@ export default function SettingsModal(props: {
                 </div>
               </div>
               <AgentsSection settings={props.settings} update={update} />
+            </div>
+          )}
+
+          {tab === 'Teams' && (
+            <div className="setting-row" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
+              <div style={{ marginBottom: 6 }}>
+                <div className="setting-label">Teams</div>
+                <div className="setting-help">
+                  Group your agents into a team for a project. One member is the orchestrator (the
+                  active agent); the rest are delegated to as read-only experts. Start a team project
+                  from Home.
+                </div>
+              </div>
+              <TeamsSection settings={props.settings} update={update} />
             </div>
           )}
 

@@ -666,13 +666,19 @@ export class AgentRun {
       recordFailure('denied', tool.name, 'plan-only mode')
       return false
     }
+    // In a team project, a git commit always confirms — even under auto/full-auto —
+    // so the orchestrator can't commit unreviewed work without a human nod.
+    const teamCommit =
+      !!this.selectedTeam() &&
+      tool.name === 'bash' &&
+      /(^|[\s;&|])git\s+commit\b/.test(String(input.command ?? ''))
     if (tool.kind === 'memory') {
       // Memory/skill writes are gated only by the dedicated approval setting —
       // they never touch the user's files, so the permission mode doesn't
       // apply. Read-style calls (e.g. skill read) never prompt.
       if (!this.settings.memoryWriteApproval) return true
       if (!(tool.requiresApproval?.(input) ?? true)) return true
-    } else {
+    } else if (!teamCommit) {
       if (mode === 'full-auto') return true
       if (mode === 'auto-edit' && tool.kind === 'write') return true
     }
@@ -689,9 +695,10 @@ export class AgentRun {
         allowKey = null // outside workspace — always re-prompt (and tool will fail)
       }
     }
-    // MCP tools keep full namespaced name as the allow key.
-    if (allowKey && this.session.allowlist.includes(allowKey)) return true
-    if (allowKey && this.settings.globalAllowlist.includes(allowKey)) return true
+    // MCP tools keep full namespaced name as the allow key. A team commit is
+    // never satisfied by a prior "always allow bash:git" — it always confirms.
+    if (!teamCommit && allowKey && this.session.allowlist.includes(allowKey)) return true
+    if (!teamCommit && allowKey && this.settings.globalAllowlist.includes(allowKey)) return true
 
     const request: PermissionRequest = {
       requestId: id(),
